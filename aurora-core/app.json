@@ -1,0 +1,207 @@
+{
+  "module": "Tenant Isolation",
+  "version": "1.0.0",
+  "status": "COMPLETED",
+  "completionDate": "2026-02-15",
+  "description": "Multi-tenant support with logical isolation and optional physical database separation for enterprise tenants.",
+  "purpose": [
+    "Logical isolation: Each tenant's data is scoped via 'tenantId'.",
+    "Optional physical database separation: Enterprise tenants can have a dedicated MongoDB database.",
+    "Scalable SaaS model: Shared DB for small tenants, dedicated DB for enterprise.",
+    "Thread-local tenant context for request-scoped operations",
+    "Auto-detection of enterprise tenants based on requirements"
+  ],
+  "data_model": {
+    "class": "Tenant",
+    "fields": [
+      {"name": "id", "type": "String", "description": "Unique tenant record ID (UUID)"},
+      {"name": "tenantId", "type": "String", "description": "Tenant context ID (UUID or enterprise key)"},
+      {"name": "name", "type": "String", "description": "Tenant display name"},
+      {"name": "createdAt", "type": "Instant", "description": "Tenant creation timestamp"},
+      {"name": "updatedAt", "type": "Instant", "description": "Last update timestamp"},
+      {"name": "isActive", "type": "Boolean", "description": "Soft delete flag"}
+    ]
+  },
+  "database": {
+    "shared": "aurora_shared",
+    "dedicated_prefix": "aurora_<tenantId>",
+    "collection": "tenants",
+    "connection_pool": {
+      "maxSize": 100,
+      "minSize": 10,
+      "maxWaitMs": 5000
+    },
+    "indexes": [
+      {"field": "id", "unique": true, "name": "idx_id_unique"},
+      {"field": "tenantId", "unique": false, "name": "idx_tenantId"},
+      {"field": "name", "unique": false, "name": "idx_name"},
+      {"field": ["isActive", "tenantId"], "unique": false, "name": "idx_active_tenant"},
+      {"field": "createdAt", "unique": false, "name": "idx_createdAt"}
+    ]
+  },
+  "components": {
+    "tenantContext": {
+      "class": "TenantContext",
+      "type": "object",
+      "description": "Thread-local tenant context management",
+      "methods": [
+        {"name": "setContext", "description": "Set current tenant context"},
+        {"name": "getCurrentTenantId", "description": "Get current tenant ID"},
+        {"name": "isDedicated", "description": "Check if current tenant uses dedicated DB"},
+        {"name": "withTenant", "description": "Execute block with tenant context"}
+      ]
+    },
+    "tenantDatabaseManager": {
+      "class": "TenantDatabaseManager",
+      "type": "object",
+      "description": "Multi-tenant database connection management",
+      "methods": [
+        {"name": "getDatabase", "description": "Get database for tenant (shared/dedicated)"},
+        {"name": "determineTenantType", "description": "Auto-detect if tenant needs dedicated DB"},
+        {"name": "migrateToDedicated", "description": "Migrate tenant from shared to dedicated DB"},
+        {"name": "pingDatabase", "description": "Health check for database connection"}
+      ],
+      "features": [
+        "Connection pooling",
+        "Tenant database caching",
+        "Auto-detection logic",
+        "Migration tools"
+      ]
+    },
+    "tenantService": {
+      "class": "TenantService",
+      "type": "object",
+      "description": "Tenant CRUD operations with isolation",
+      "methods": [
+        {
+          "name": "initialize",
+          "description": "Initialize indexes for shared or dedicated DB.",
+          "parameters": [
+            {"name": "tenantId", "type": "String", "default": "system"},
+            {"name": "dedicated", "type": "Boolean", "default": false}
+          ]
+        },
+        {
+          "name": "createTenant",
+          "description": "Create a tenant in current context.",
+          "parameters": [
+            {"name": "name", "type": "String"}
+          ],
+          "returns": "Try<Tenant>"
+        },
+        {
+          "name": "createTenantWithRequirements",
+          "description": "Create tenant with auto-detection.",
+          "parameters": [
+            {"name": "name", "type": "String"},
+            {"name": "requirements", "type": "TenantRequirements"}
+          ],
+          "returns": "Try<Tenant>"
+        },
+        {
+          "name": "getActiveTenants",
+          "description": "Get all active tenants for current context.",
+          "parameters": [
+            {"name": "limit", "type": "Int", "default": 100},
+            {"name": "offset", "type": "Int", "default": 0}
+          ],
+          "returns": "Try<List<Tenant>>"
+        },
+        {
+          "name": "getTenantById",
+          "description": "Get tenant by record ID in current context.",
+          "parameters": [
+            {"name": "id", "type": "String"}
+          ],
+          "returns": "Try<Option<Tenant>>"
+        },
+        {
+          "name": "updateTenantName",
+          "description": "Update tenant name by record ID.",
+          "parameters": [
+            {"name": "id", "type": "String"},
+            {"name": "newName", "type": "String"}
+          ],
+          "returns": "Try<Tenant>"
+        },
+        {
+          "name": "deactivateTenant",
+          "description": "Soft delete a tenant.",
+          "parameters": [
+            {"name": "id", "type": "String"},
+            {"name": "reason", "type": "Option<String>", "optional": true}
+          ],
+          "returns": "Try<Tenant>"
+        },
+        {
+          "name": "activateTenant",
+          "description": "Activate a tenant.",
+          "parameters": [
+            {"name": "id", "type": "String"}
+          ],
+          "returns": "Try<Tenant>"
+        },
+        {
+          "name": "migrateCurrentTenantToDedicated",
+          "description": "Migrate current tenant to dedicated DB.",
+          "returns": "Try<Boolean>"
+        }
+      ]
+    }
+  },
+  "filters": [
+    "activeTenantFilter: Filters tenantId + isActive=true",
+    "activeTenantByIdFilter: Filters tenantId + record id + isActive=true"
+  ],
+  "features_implemented": [
+    "Logical tenant isolation via tenantId",
+    "Optional dedicated DB per tenant",
+    "Thread-local tenant context management",
+    "Connection pooling for MongoDB",
+    "Auto-detection of enterprise tenants",
+    "Tenant migration from shared to dedicated",
+    "CRUD operations for tenants",
+    "Soft deletion via isActive flag",
+    "Activation/deactivation workflow",
+    "MongoDB indexes for performance",
+    "Health checks for databases",
+    "CLI interface for testing",
+    "Multi-mode operation (CLI/Server)",
+    "Tenant context switching",
+    "Shared/dedicated mode toggling"
+  ],
+  "testing": {
+    "cli_commands": [
+      "help - Show help",
+      "list - List active tenants",
+      "create - Create tenant",
+      "get - Get tenant by ID",
+      "update - Update tenant name",
+      "deactivate - Soft delete tenant",
+      "activate - Activate tenant",
+      "toggle - Switch shared/dedicated mode",
+      "context - Change tenant context",
+      "health - Check system health",
+      "exit - Exit application"
+    ],
+    "verification": {
+      "shared_mode": "Tenants stored in aurora_shared database",
+      "dedicated_mode": "Tenants stored in aurora_<tenantId> database",
+      "isolation": "Different contexts cannot see each other's tenants"
+    }
+  },
+  "next_enhancements": [
+    "Tenant-level configuration and resource limits",
+    "Cross-tenant federation (optional)",
+    "Backup & restore per dedicated DB",
+    "Multi-region tenant deployment",
+    "Tenant analytics dashboard",
+    "REST API endpoints"
+  ],
+  "metrics": {
+    "files": 6,
+    "linesOfCode": "~800",
+    "testCoverage": "Manual CLI testing",
+    "completionStatus": "100%"
+  }
+}
