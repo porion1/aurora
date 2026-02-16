@@ -6,6 +6,8 @@ ThisBuild / version := "0.1.0-SNAPSHOT"
 ThisBuild / scalaVersion := "3.3.1"
 ThisBuild / organization := "com.aurora"
 
+// Disable forking to keep CLI alive
+fork := false
 // ------------------------------------------------------
 // Scala 3 Compiler Options
 // ------------------------------------------------------
