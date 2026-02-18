@@ -1,15 +1,16 @@
 {
   "module": "Tenant Isolation",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "status": "COMPLETED",
-  "completionDate": "2026-02-15",
-  "description": "Multi-tenant support with logical isolation and optional physical database separation for enterprise tenants.",
+  "completionDate": "2026-02-18",
+  "description": "Multi-tenant support with logical isolation, optional physical database separation for enterprise tenants, and request-scoped tenant context propagation via HTTP and CLI.",
   "purpose": [
     "Logical isolation: Each tenant's data is scoped via 'tenantId'.",
     "Optional physical database separation: Enterprise tenants can have a dedicated MongoDB database.",
     "Scalable SaaS model: Shared DB for small tenants, dedicated DB for enterprise.",
     "Thread-local tenant context for request-scoped operations",
-    "Auto-detection of enterprise tenants based on requirements"
+    "Auto-detection of enterprise tenants based on requirements",
+    "HTTP request tenant context propagation using TenantRoutesWithContext"
   ],
   "data_model": {
     "class": "Tenant",
@@ -49,6 +50,9 @@
         {"name": "getCurrentTenantId", "description": "Get current tenant ID"},
         {"name": "isDedicated", "description": "Check if current tenant uses dedicated DB"},
         {"name": "withTenant", "description": "Execute block with tenant context"}
+      ],
+      "files": [
+        "src/main/scala/com/aurora/tenant/TenantContext.scala"
       ]
     },
     "tenantDatabaseManager": {
@@ -66,6 +70,9 @@
         "Tenant database caching",
         "Auto-detection logic",
         "Migration tools"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/infrastructure/TenantDatabaseManager.scala"
       ]
     },
     "tenantService": {
@@ -73,79 +80,30 @@
       "type": "object",
       "description": "Tenant CRUD operations with isolation",
       "methods": [
-        {
-          "name": "initialize",
-          "description": "Initialize indexes for shared or dedicated DB.",
-          "parameters": [
-            {"name": "tenantId", "type": "String", "default": "system"},
-            {"name": "dedicated", "type": "Boolean", "default": false}
-          ]
-        },
-        {
-          "name": "createTenant",
-          "description": "Create a tenant in current context.",
-          "parameters": [
-            {"name": "name", "type": "String"}
-          ],
-          "returns": "Try<Tenant>"
-        },
-        {
-          "name": "createTenantWithRequirements",
-          "description": "Create tenant with auto-detection.",
-          "parameters": [
-            {"name": "name", "type": "String"},
-            {"name": "requirements", "type": "TenantRequirements"}
-          ],
-          "returns": "Try<Tenant>"
-        },
-        {
-          "name": "getActiveTenants",
-          "description": "Get all active tenants for current context.",
-          "parameters": [
-            {"name": "limit", "type": "Int", "default": 100},
-            {"name": "offset", "type": "Int", "default": 0}
-          ],
-          "returns": "Try<List<Tenant>>"
-        },
-        {
-          "name": "getTenantById",
-          "description": "Get tenant by record ID in current context.",
-          "parameters": [
-            {"name": "id", "type": "String"}
-          ],
-          "returns": "Try<Option<Tenant>>"
-        },
-        {
-          "name": "updateTenantName",
-          "description": "Update tenant name by record ID.",
-          "parameters": [
-            {"name": "id", "type": "String"},
-            {"name": "newName", "type": "String"}
-          ],
-          "returns": "Try<Tenant>"
-        },
-        {
-          "name": "deactivateTenant",
-          "description": "Soft delete a tenant.",
-          "parameters": [
-            {"name": "id", "type": "String"},
-            {"name": "reason", "type": "Option<String>", "optional": true}
-          ],
-          "returns": "Try<Tenant>"
-        },
-        {
-          "name": "activateTenant",
-          "description": "Activate a tenant.",
-          "parameters": [
-            {"name": "id", "type": "String"}
-          ],
-          "returns": "Try<Tenant>"
-        },
-        {
-          "name": "migrateCurrentTenantToDedicated",
-          "description": "Migrate current tenant to dedicated DB.",
-          "returns": "Try<Boolean>"
-        }
+        {"name": "initialize", "description": "Initialize indexes for shared or dedicated DB."},
+        {"name": "createTenant", "description": "Create a tenant in current context."},
+        {"name": "createTenantWithRequirements", "description": "Create tenant with auto-detection."},
+        {"name": "getActiveTenants", "description": "Get all active tenants for current context."},
+        {"name": "getTenantById", "description": "Get tenant by record ID in current context."},
+        {"name": "updateTenantName", "description": "Update tenant name by record ID."},
+        {"name": "deactivateTenant", "description": "Soft delete a tenant."},
+        {"name": "activateTenant", "description": "Activate a tenant."},
+        {"name": "migrateCurrentTenantToDedicated", "description": "Migrate current tenant to dedicated DB."}
+      ],
+      "files": [
+        "src/main/scala/com/aurora/tenant/TenantService.scala"
+      ]
+    },
+    "tenantRoutes": {
+      "class": "TenantRoutesWithContext",
+      "type": "object",
+      "description": "Wrap Akka HTTP routes with tenant context per request",
+      "methods": [
+        {"name": "routesWithTenant", "description": "Sets tenant context for incoming HTTP requests"}
+      ],
+      "files": [
+        "src/main/scala/com/aurora/api/TenantRoutesWithContext.scala",
+        "src/main/scala/com/aurora/api/TenantRoutes.scala"
       ]
     }
   },
@@ -168,7 +126,8 @@
     "CLI interface for testing",
     "Multi-mode operation (CLI/Server)",
     "Tenant context switching",
-    "Shared/dedicated mode toggling"
+    "Shared/dedicated mode toggling",
+    "HTTP route tenant context propagation via TenantRoutesWithContext"
   ],
   "testing": {
     "cli_commands": [
@@ -187,7 +146,8 @@
     "verification": {
       "shared_mode": "Tenants stored in aurora_shared database",
       "dedicated_mode": "Tenants stored in aurora_<tenantId> database",
-      "isolation": "Different contexts cannot see each other's tenants"
+      "isolation": "Different contexts cannot see each other's tenants",
+      "http_requests": "Tenant context respected via X-Tenant-Id header in all routes"
     }
   },
   "next_enhancements": [
@@ -199,9 +159,22 @@
     "REST API endpoints"
   ],
   "metrics": {
-    "files": 6,
-    "linesOfCode": "~800",
-    "testCoverage": "Manual CLI testing",
+    "files": 8,
+    "linesOfCode": "~950",
+    "testCoverage": "Manual CLI & HTTP testing",
     "completionStatus": "100%"
-  }
+  },
+  "file_manifest": [
+    "src/main/scala/com/aurora/Main.scala",
+    "src/main/scala/com/aurora/api/TenantRoutes.scala",
+    "src/main/scala/com/aurora/api/TenantRoutesWithContext.scala",
+    "src/main/scala/com/aurora/infrastructure/MongoDB.scala",
+    "src/main/scala/com/aurora/infrastructure/TenantDatabase.scala",
+    "src/main/scala/com/aurora/infrastructure/TenantDatabaseManager.scala",
+    "src/main/scala/com/aurora/tenant/Tenant.scala",
+    "src/main/scala/com/aurora/tenant/TenantConfig.scala",
+    "src/main/scala/com/aurora/tenant/TenantConfigContext.scala",
+    "src/main/scala/com/aurora/tenant/TenantContext.scala",
+    "src/main/scala/com/aurora/tenant/TenantService.scala"
+  ]
 }

@@ -80,4 +80,40 @@ object TenantContext {
       }
     }
   }
+
+  // =========================
+  // Set full tenant context (TenantContext + TenantConfigContext)
+  // =========================
+  def setFullContext(tenantId: String, name: Option[String] = None): Unit = {
+    // Set the main tenant context
+    setContext(tenantId, name)
+    // Also set the tenant config context for thread-local access
+    TenantConfigContext.setTenant(tenantId)
+    debug(s"Full context set (Tenant + Config): $tenantId")
+  }
+
+  // =========================
+  // Execute block with full context
+  // =========================
+  def withFullTenant[T](tenantId: String, name: Option[String] = None)(block: => T): T = {
+    val previousTenant = Option(currentTenant.get())
+    val previousConfig = TenantConfigContext.getTenant
+
+    try {
+      setFullContext(tenantId, name)
+      block
+    } finally {
+      // Restore previous tenant context
+      previousTenant match {
+        case Some(info) => setContext(info.tenantId, info.name)
+        case None => clearContext()
+      }
+      // Restore previous config context
+      previousConfig match {
+        case Some(id) => TenantConfigContext.setTenant(id)
+        case None => TenantConfigContext.clear()
+      }
+    }
+  }
+
 }
