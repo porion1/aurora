@@ -12,6 +12,8 @@ fork := false
 // Scala 3 Compiler Options
 // ------------------------------------------------------
 ThisBuild / scalacOptions ++= Seq(
+  "-Xignore-scala2-macros",
+  "-Xsource:3-cross",
   "-deprecation",
   "-feature",
   "-unchecked",

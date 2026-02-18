@@ -2,9 +2,9 @@ package com.aurora
 
 import com.aurora.config.ApplicationConfig
 import com.aurora.infrastructure.{MongoDB, TenantDatabaseManager}
-import com.aurora.tenant.{TenantContext, TenantService}
+import com.aurora.tenant.{TenantContext, TenantService, TenantConfigService, TenantConfigContext}
 import com.aurora.tenant.TenantService.TenantRequirements
-import com.aurora.api.{TenantRoutes, TenantRoutesWithContext}
+import com.aurora.api.{TenantRoutes, TenantRoutesWithContext, TenantConfigRoutes}
 
 import scala.io.StdIn
 import scala.util.{Failure, Success, Try}
@@ -19,6 +19,7 @@ import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Route
 import scala.concurrent.{ExecutionContextExecutor, Future}
+import akka.http.scaladsl.server.RouteConcatenation.*
 
 /**
  * Main entry point for Aurora Tenant Service
@@ -70,22 +71,31 @@ object Main {
     // Set default system tenant context
     TenantContext.setFullContext("system")
 
-    // Initialize indexes
+    // Initialize indexes for tenants and configs
     TenantService.initialize() match {
       case Success(_) => logInfo("Database indexes initialized")
       case Failure(e) => logWarn(s"Index initialization warning: ${e.getMessage}")
     }
 
+    // Initialize config indexes for system tenant
+    TenantConfigService.ensureIndexes("system") match {
+      case Success(_) => logInfo("Config indexes initialized")
+      case Failure(e) => logWarn(s"Config index initialization warning: ${e.getMessage}")
+    }
+
     // ------------------------------
-    // Start HTTP server
+    // Start HTTP server with combined routes
     // ------------------------------
     implicit val system: ActorSystem[Nothing] = ActorSystem(Behaviors.empty, "AuroraSystem")
     implicit val ec: ExecutionContextExecutor = system.executionContext
     val host = ApplicationConfig.Http.host
     val port = ApplicationConfig.Http.port
 
+    // Combine existing tenant routes with new config routes
+    val allRoutes: Route = TenantRoutes.routes ~ TenantConfigRoutes.routes
+
     val serverBindingFuture: Future[Http.ServerBinding] =
-      startHttpServer(host, port, TenantRoutes.routes)
+      startHttpServer(host, port, allRoutes)
 
     // ------------------------------
     // Start CLI in main thread
@@ -101,6 +111,7 @@ object Main {
       serverBindingFuture.foreach(_ => logInfo("HTTP server stopped"))
       TenantDatabaseManager.close()
       MongoDB.client.close()
+      TenantConfigContext.cleanup()
       logInfo("Shutdown complete")
     }
   }
@@ -149,6 +160,7 @@ object Main {
           println("\nInput stream closed. Exiting...")
           running = false
         } else input.trim.toLowerCase match {
+          // Existing commands
           case "help" | "h"       => showHelp()
           case "list" | "ls"      => listTenants()
           case "create" | "c"     => createTenantInteractive()
@@ -169,6 +181,19 @@ object Main {
             println(s"[OK] Tenant context set to: $currentTenantId")
           case "stats"   => showDetailedStats()
           case "health"  => healthCheck()
+
+          // ===== NEW CONFIG COMMANDS =====
+          case "config" | "cfg" => showCurrentConfig()
+          case "config-get"      => getConfigSetting()
+          case "config-set"      => setConfigSetting()
+          case "config-del"      => deleteConfigSetting()
+          case "feature" | "f"   => showFeatures()
+          case "feature-enable"  => enableFeature()
+          case "feature-disable" => disableFeature()
+          case "config-reset"    => resetConfig()
+          case "config-health"   => configHealthCheck()
+          case "config-cache"    => showConfigCache()
+
           case "exit" | "quit" | "q" =>
             println("Goodbye!")
             running = false
@@ -186,26 +211,40 @@ object Main {
   }
 
   // =====================================================
-  // CLI Helper Methods
+  // CLI Helper Methods (Existing)
   // =====================================================
   private def showHelp(): Unit = {
     println("""
 AVAILABLE COMMANDS:
 ------------------
-help, h        - Show this help message
-list, ls       - List active tenants
-create, c      - Create a new tenant
-get, g         - Get tenant by ID
-update, u      - Update tenant name
-deactivate, d  - Soft delete a tenant
-activate       - Activate a tenant
-delete         - Hard delete a tenant (admin)
-migrate        - Migrate tenant to dedicated DB
-toggle, t      - Toggle shared/dedicated DB mode
-context, ctx   - Change tenant context ID
-stats          - Show tenant statistics
-health         - Check system health
-exit, quit, q  - Exit the application
+TENANT COMMANDS:
+  help, h        - Show this help message
+  list, ls       - List active tenants
+  create, c      - Create a new tenant
+  get, g         - Get tenant by ID
+  update, u      - Update tenant name
+  deactivate, d  - Soft delete a tenant
+  activate       - Activate a tenant
+  delete         - Hard delete a tenant (admin)
+  migrate        - Migrate tenant to dedicated DB
+  toggle, t      - Toggle shared/dedicated DB mode
+  context, ctx   - Change tenant context ID
+  stats          - Show tenant statistics
+  health         - Check system health
+
+CONFIG COMMANDS:
+  config, cfg    - Show current tenant config
+  config-get     - Get a specific setting value
+  config-set     - Set a setting value
+  config-del     - Delete a setting
+  feature, f     - Show all features
+  feature-enable - Enable a feature
+  feature-disable- Disable a feature
+  config-reset   - Reset config to defaults
+  config-health  - Check config service health
+  config-cache   - Show config cache status
+
+  exit, quit, q  - Exit the application
     """.stripMargin)
   }
 
@@ -325,5 +364,158 @@ exit, quit, q  - Exit the application
     println(s"Database Pool: ${if (dbHealth) "[OK]" else "[FAILED]"}")
     if (mongoHealth && dbHealth) println("[OK] All systems operational")
     else println("[ERROR] Some systems are unhealthy")
+  }
+
+  // =====================================================
+  // NEW Config CLI Commands
+  // =====================================================
+
+  private def showCurrentConfig(): Unit = {
+    println("--- Current Tenant Config ---")
+    TenantContext.getCurrentTenantId match {
+      case tenantId =>
+        TenantConfigService.getConfig(tenantId) match {
+          case Success(config) =>
+            println(s"Tenant ID: ${config.tenantId}")
+            println(s"Version: ${config.version}")
+            println(s"Updated: ${config.updatedAt}")
+            println(s"Created: ${config.createdAt}")
+            println("\n--- Settings ---")
+            if (config.settings.isEmpty) println("  (no settings)")
+            else config.settings.foreach { case (k, v) => println(s"  $k = $v") }
+            println("\n--- Features ---")
+            if (config.features.isEmpty) println("  (no features)")
+            else config.features.foreach { case (k, v) => println(s"  $k = $v") }
+          case Failure(e) => println(s"[ERROR] Failed to get config: ${e.getMessage}")
+        }
+    }
+  }
+
+  private def getConfigSetting(): Unit = {
+    print("Enter setting key: ")
+    val key = StdIn.readLine().trim
+    if (key.isEmpty) { println("[ERROR] Key cannot be empty"); return }
+
+    TenantContext.getCurrentTenantId match {
+      case tenantId =>
+        TenantConfigService.getSetting(tenantId, key) match {
+          case Success(Some(value)) => println(s"$key = $value")
+          case Success(None) => println(s"[INFO] Setting '$key' not found")
+          case Failure(e) => println(s"[ERROR] Failed to get setting: ${e.getMessage}")
+        }
+    }
+  }
+
+  private def setConfigSetting(): Unit = {
+    print("Enter setting key: ")
+    val key = StdIn.readLine().trim
+    if (key.isEmpty) { println("[ERROR] Key cannot be empty"); return }
+
+    print("Enter setting value: ")
+    val value = StdIn.readLine().trim
+    if (value.isEmpty) { println("[ERROR] Value cannot be empty"); return }
+
+    TenantContext.getCurrentTenantId match {
+      case tenantId =>
+        TenantConfigService.setSetting(tenantId, key, value) match {
+          case Success(_) => println(s"[OK] Setting '$key' set to '$value'")
+          case Failure(e) => println(s"[ERROR] Failed to set setting: ${e.getMessage}")
+        }
+    }
+  }
+
+  private def deleteConfigSetting(): Unit = {
+    print("Enter setting key to delete: ")
+    val key = StdIn.readLine().trim
+    if (key.isEmpty) { println("[ERROR] Key cannot be empty"); return }
+
+    TenantContext.getCurrentTenantId match {
+      case tenantId =>
+        TenantConfigService.deleteSetting(tenantId, key) match {
+          case Success(_) => println(s"[OK] Setting '$key' deleted")
+          case Failure(e) => println(s"[ERROR] Failed to delete setting: ${e.getMessage}")
+        }
+    }
+  }
+
+  private def showFeatures(): Unit = {
+    println("--- Features ---")
+    TenantContext.getCurrentTenantId match {
+      case tenantId =>
+        TenantConfigService.getAllFeatures(tenantId) match {
+          case Success(features) =>
+            if (features.isEmpty) println("  (no features)")
+            else features.foreach { case (k, v) =>
+              val status = if (v) "[ENABLED]" else "[DISABLED]"
+              println(s"  $status $k")
+            }
+          case Failure(e) => println(s"[ERROR] Failed to get features: ${e.getMessage}")
+        }
+    }
+  }
+
+  private def enableFeature(): Unit = {
+    print("Enter feature name to enable: ")
+    val feature = StdIn.readLine().trim
+    if (feature.isEmpty) { println("[ERROR] Feature name cannot be empty"); return }
+
+    TenantContext.getCurrentTenantId match {
+      case tenantId =>
+        TenantConfigService.enableFeature(feature, tenantId) match {
+          case Success(_) => println(s"[OK] Feature '$feature' enabled")
+          case Failure(e) => println(s"[ERROR] Failed to enable feature: ${e.getMessage}")
+        }
+    }
+  }
+
+  private def disableFeature(): Unit = {
+    print("Enter feature name to disable: ")
+    val feature = StdIn.readLine().trim
+    if (feature.isEmpty) { println("[ERROR] Feature name cannot be empty"); return }
+
+    TenantContext.getCurrentTenantId match {
+      case tenantId =>
+        TenantConfigService.disableFeature(feature, tenantId) match {
+          case Success(_) => println(s"[OK] Feature '$feature' disabled")
+          case Failure(e) => println(s"[ERROR] Failed to disable feature: ${e.getMessage}")
+        }
+    }
+  }
+
+  private def resetConfig(): Unit = {
+    print("Reset config to defaults? (type 'YES' to confirm): ")
+    val confirm = StdIn.readLine().trim
+    if (confirm != "YES") { println("[INFO] Reset cancelled"); return }
+
+    TenantContext.getCurrentTenantId match {
+      case tenantId =>
+        TenantConfigService.resetToDefaults(tenantId) match {
+          case Success(_) => println("[OK] Config reset to defaults")
+          case Failure(e) => println(s"[ERROR] Failed to reset config: ${e.getMessage}")
+        }
+    }
+  }
+
+  private def configHealthCheck(): Unit = {
+    println("--- Config Service Health ---")
+    TenantContext.getCurrentTenantId match {
+      case tenantId =>
+        TenantConfigService.healthCheck(tenantId) match {
+          case Success(metrics) =>
+            metrics.foreach { case (k, v) => println(s"  $k: $v") }
+          case Failure(e) => println(s"[ERROR] Health check failed: ${e.getMessage}")
+        }
+    }
+  }
+
+  private def showConfigCache(): Unit = {
+    println("--- Config Cache Status ---")
+    val metrics = TenantConfigContext.getMetrics
+    println(s"Cache hits: ${metrics("cacheHits")}")
+    println(s"Cache misses: ${metrics("cacheMisses")}")
+    println(s"Hit ratio: ${metrics("cacheHitRatio")}")
+    println(s"Current cache size: ${metrics("currentCacheSize")}")
+    println(s"Cached tenants: ${metrics("cachedTenants")}")
+    println(s"Current tenant: ${metrics("currentTenant")}")
   }
 }
