@@ -1,75 +1,126 @@
 {
-  "module": "Tenant Isolation",
-  "version": "1.0.1",
+  "module": "Tenant Isolation & Configuration Engine",
+  "version": "1.2.0",
   "status": "COMPLETED",
   "completionDate": "2026-02-18",
-  "description": "Multi-tenant support with logical isolation, optional physical database separation for enterprise tenants, and request-scoped tenant context propagation via HTTP and CLI.",
+  "description": "Multi-tenant support with logical isolation, optional physical database separation for enterprise tenants, request-scoped tenant context propagation, and per-tenant configuration engine with feature toggles.",
   "purpose": [
     "Logical isolation: Each tenant's data is scoped via 'tenantId'.",
     "Optional physical database separation: Enterprise tenants can have a dedicated MongoDB database.",
     "Scalable SaaS model: Shared DB for small tenants, dedicated DB for enterprise.",
     "Thread-local tenant context for request-scoped operations",
     "Auto-detection of enterprise tenants based on requirements",
-    "HTTP request tenant context propagation using TenantRoutesWithContext"
+    "HTTP request tenant context propagation using TenantRoutesWithContext",
+    "Per-tenant configuration management with settings and feature toggles",
+    "Request-scoped config caching for optimal performance",
+    "RESTful API for tenant configuration"
   ],
   "data_model": {
-    "class": "Tenant",
-    "fields": [
-      {"name": "id", "type": "String", "description": "Unique tenant record ID (UUID)"},
-      {"name": "tenantId", "type": "String", "description": "Tenant context ID (UUID or enterprise key)"},
-      {"name": "name", "type": "String", "description": "Tenant display name"},
-      {"name": "createdAt", "type": "Instant", "description": "Tenant creation timestamp"},
-      {"name": "updatedAt", "type": "Instant", "description": "Last update timestamp"},
-      {"name": "isActive", "type": "Boolean", "description": "Soft delete flag"}
-    ]
+    "tenants": {
+      "class": "Tenant",
+      "fields": [
+        {"name": "id", "type": "String", "description": "Unique tenant record ID (UUID)"},
+        {"name": "tenantId", "type": "String", "description": "Tenant context ID (UUID or enterprise key)"},
+        {"name": "name", "type": "String", "description": "Tenant display name"},
+        {"name": "createdAt", "type": "Instant", "description": "Tenant creation timestamp"},
+        {"name": "updatedAt", "type": "Instant", "description": "Last update timestamp"},
+        {"name": "isActive", "type": "Boolean", "description": "Soft delete flag"}
+      ]
+    },
+    "configs": {
+      "class": "TenantConfig",
+      "fields": [
+        {"name": "tenantId", "type": "String", "description": "Tenant identifier"},
+        {"name": "settings", "type": "Map[String, String]", "description": "Key-value configuration settings"},
+        {"name": "features", "type": "Map[String, Boolean]", "description": "Feature toggle flags"},
+        {"name": "version", "type": "Long", "description": "Optimistic locking version"},
+        {"name": "createdAt", "type": "Instant", "description": "Creation timestamp"},
+        {"name": "updatedAt", "type": "Instant", "description": "Last update timestamp"},
+        {"name": "createdBy", "type": "Option[String]", "description": "Creator identifier"},
+        {"name": "updatedBy", "type": "Option[String]", "description": "Last updater identifier"},
+        {"name": "status", "type": "String", "description": "Config status (active/deprecated/experimental)"},
+        {"name": "environment", "type": "Option[String]", "description": "Target environment"},
+        {"name": "tags", "type": "Set[String]", "description": "Classification tags"},
+        {"name": "description", "type": "Option[String]", "description": "Human-readable description"}
+      ]
+    }
   },
   "database": {
     "shared": "aurora_shared",
     "dedicated_prefix": "aurora_<tenantId>",
-    "collection": "tenants",
+    "collections": {
+      "tenants": "Tenant records",
+      "tenant_configs": "Per-tenant configuration and feature toggles",
+      "tenant_configs_history": "Historical config versions (optional)"
+    },
     "connection_pool": {
       "maxSize": 100,
       "minSize": 10,
       "maxWaitMs": 5000
     },
     "indexes": [
-      {"field": "id", "unique": true, "name": "idx_id_unique"},
-      {"field": "tenantId", "unique": false, "name": "idx_tenantId"},
-      {"field": "name", "unique": false, "name": "idx_name"},
-      {"field": ["isActive", "tenantId"], "unique": false, "name": "idx_active_tenant"},
-      {"field": "createdAt", "unique": false, "name": "idx_createdAt"}
+      {"collection": "tenants", "field": "id", "unique": true, "name": "idx_id_unique"},
+      {"collection": "tenants", "field": "tenantId", "unique": false, "name": "idx_tenantId"},
+      {"collection": "tenants", "field": "name", "unique": false, "name": "idx_name"},
+      {"collection": "tenants", "field": ["isActive", "tenantId"], "unique": false, "name": "idx_active_tenant"},
+      {"collection": "tenants", "field": "createdAt", "unique": false, "name": "idx_createdAt"},
+      {"collection": "tenant_configs", "field": "tenantId", "unique": true, "name": "idx_config_tenant"},
+      {"collection": "tenant_configs", "field": "version", "unique": false, "name": "idx_config_version"},
+      {"collection": "tenant_configs", "field": "updatedAt", "unique": false, "name": "idx_config_updated"}
     ]
   },
   "components": {
     "tenantContext": {
       "class": "TenantContext",
       "type": "object",
-      "description": "Thread-local tenant context management",
+      "description": "Thread-local tenant context management with config context integration",
       "methods": [
         {"name": "setContext", "description": "Set current tenant context"},
         {"name": "getCurrentTenantId", "description": "Get current tenant ID"},
         {"name": "isDedicated", "description": "Check if current tenant uses dedicated DB"},
-        {"name": "withTenant", "description": "Execute block with tenant context"}
+        {"name": "withTenant", "description": "Execute block with tenant context"},
+        {"name": "setFullContext", "description": "Set both tenant and config context"},
+        {"name": "withFullTenant", "description": "Execute block with full context"}
       ],
       "files": [
         "src/main/scala/com/aurora/tenant/TenantContext.scala"
       ]
     },
+    "tenantConfigContext": {
+      "class": "TenantConfigContext",
+      "type": "object",
+      "description": "Request-scoped config caching and thread-local config context",
+      "methods": [
+        {"name": "setTenant", "description": "Set current config tenant context"},
+        {"name": "getTenant", "description": "Get current config tenant ID"},
+        {"name": "cacheConfig", "description": "Cache config for current request"},
+        {"name": "getCachedConfig", "description": "Retrieve cached config"},
+        {"name": "isCached", "description": "Check if tenant config is cached"},
+        {"name": "clearCache", "description": "Clear request cache"},
+        {"name": "getMetrics", "description": "Get cache performance metrics"}
+      ],
+      "files": [
+        "src/main/scala/com/aurora/tenant/TenantConfigContext.scala"
+      ]
+    },
     "tenantDatabaseManager": {
       "class": "TenantDatabaseManager",
       "type": "object",
-      "description": "Multi-tenant database connection management",
+      "description": "Multi-tenant database connection management with connection pooling",
       "methods": [
         {"name": "getDatabase", "description": "Get database for tenant (shared/dedicated)"},
         {"name": "determineTenantType", "description": "Auto-detect if tenant needs dedicated DB"},
         {"name": "migrateToDedicated", "description": "Migrate tenant from shared to dedicated DB"},
-        {"name": "pingDatabase", "description": "Health check for database connection"}
+        {"name": "pingDatabase", "description": "Health check for database connection"},
+        {"name": "getDatabaseStats", "description": "Get database statistics"},
+        {"name": "getPoolStats", "description": "Get connection pool statistics"}
       ],
       "features": [
         "Connection pooling",
         "Tenant database caching",
         "Auto-detection logic",
-        "Migration tools"
+        "Migration tools",
+        "Health monitoring"
       ],
       "files": [
         "src/main/scala/com/aurora/infrastructure/TenantDatabaseManager.scala"
@@ -94,7 +145,80 @@
         "src/main/scala/com/aurora/tenant/TenantService.scala"
       ]
     },
+    "tenantConfigService": {
+      "class": "TenantConfigService",
+      "type": "object",
+      "description": "Per-tenant configuration and feature toggle management",
+      "methods": [
+        {"name": "getConfig", "description": "Fetch tenant config with caching"},
+        {"name": "updateConfig", "description": "Update config with optimistic locking"},
+        {"name": "enableFeature", "description": "Enable a feature toggle"},
+        {"name": "disableFeature", "description": "Disable a feature toggle"},
+        {"name": "isFeatureEnabled", "description": "Check if feature is enabled"},
+        {"name": "getEnabledFeatures", "description": "Get all enabled features"},
+        {"name": "getAllFeatures", "description": "Get all features with status"},
+        {"name": "getSetting", "description": "Get a specific setting"},
+        {"name": "setSetting", "description": "Set a configuration setting"},
+        {"name": "deleteSetting", "description": "Delete a setting"},
+        {"name": "getAllSettings", "description": "Get all settings"},
+        {"name": "getSettingsByPrefix", "description": "Get settings by key prefix"},
+        {"name": "bulkUpdateSettings", "description": "Update multiple settings"},
+        {"name": "bulkUpdateFeatures", "description": "Update multiple features"},
+        {"name": "resetToDefaults", "description": "Reset config to defaults"},
+        {"name": "healthCheck", "description": "Check config service health"},
+        {"name": "clearCache", "description": "Clear service cache"},
+        {"name": "configExists", "description": "Check if config exists"}
+      ],
+      "features": [
+        "In-memory caching with TTL",
+        "Optimistic locking for concurrency",
+        "Validation rules",
+        "Batch operations",
+        "Health monitoring",
+        "Audit logging"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/tenant/TenantConfigService.scala"
+      ]
+    },
     "tenantRoutes": {
+      "class": "TenantRoutes",
+      "type": "object",
+      "description": "Legacy tenant management HTTP endpoints",
+      "files": [
+        "src/main/scala/com/aurora/api/TenantRoutes.scala"
+      ]
+    },
+    "tenantConfigRoutes": {
+      "class": "TenantConfigRoutes",
+      "type": "object",
+      "description": "RESTful API for tenant configuration management",
+      "endpoints": [
+        {"path": "/api/v1/config", "method": "GET", "description": "Get current tenant config"},
+        {"path": "/api/v1/config/settings", "method": "GET", "description": "Get all settings"},
+        {"path": "/api/v1/config/settings/{key}", "method": "GET", "description": "Get specific setting"},
+        {"path": "/api/v1/config/settings/{key}", "method": "PUT", "description": "Update setting"},
+        {"path": "/api/v1/config/settings/{key}", "method": "DELETE", "description": "Delete setting"},
+        {"path": "/api/v1/config/settings/by-prefix/{prefix}", "method": "GET", "description": "Get settings by prefix"},
+        {"path": "/api/v1/config/settings/bulk", "method": "POST", "description": "Bulk update settings"},
+        {"path": "/api/v1/config/features", "method": "GET", "description": "Get all features"},
+        {"path": "/api/v1/config/features/enabled", "method": "GET", "description": "Get enabled features"},
+        {"path": "/api/v1/config/features/{feature}", "method": "GET", "description": "Check feature status"},
+        {"path": "/api/v1/config/features/{feature}", "method": "POST", "description": "Enable feature"},
+        {"path": "/api/v1/config/features/{feature}", "method": "DELETE", "description": "Disable feature"},
+        {"path": "/api/v1/config/features/bulk", "method": "POST", "description": "Bulk update features"},
+        {"path": "/api/v1/config/reset", "method": "POST", "description": "Reset to defaults"},
+        {"path": "/api/v1/config/refresh", "method": "POST", "description": "Clear cache"},
+        {"path": "/api/v1/config/exists", "method": "GET", "description": "Check if config exists"},
+        {"path": "/api/v1/config/health", "method": "GET", "description": "Health check"},
+        {"path": "/api/v1/config/cache/status", "method": "GET", "description": "Cache status"},
+        {"path": "/api/v1/config/metrics", "method": "GET", "description": "Cache metrics"}
+      ],
+      "files": [
+        "src/main/scala/com/aurora/api/TenantConfigRoutes.scala"
+      ]
+    },
+    "tenantRoutesWithContext": {
       "class": "TenantRoutesWithContext",
       "type": "object",
       "description": "Wrap Akka HTTP routes with tenant context per request",
@@ -102,14 +226,14 @@
         {"name": "routesWithTenant", "description": "Sets tenant context for incoming HTTP requests"}
       ],
       "files": [
-        "src/main/scala/com/aurora/api/TenantRoutesWithContext.scala",
-        "src/main/scala/com/aurora/api/TenantRoutes.scala"
+        "src/main/scala/com/aurora/api/TenantRoutesWithContext.scala"
       ]
     }
   },
   "filters": [
     "activeTenantFilter: Filters tenantId + isActive=true",
-    "activeTenantByIdFilter: Filters tenantId + record id + isActive=true"
+    "activeTenantByIdFilter: Filters tenantId + record id + isActive=true",
+    "tenantContextFilter: Sets thread-local tenant context from X-Tenant-Id header"
   ],
   "features_implemented": [
     "Logical tenant isolation via tenantId",
@@ -127,7 +251,16 @@
     "Multi-mode operation (CLI/Server)",
     "Tenant context switching",
     "Shared/dedicated mode toggling",
-    "HTTP route tenant context propagation via TenantRoutesWithContext"
+    "HTTP route tenant context propagation",
+    "Per-tenant configuration storage",
+    "Feature toggle management",
+    "Settings management",
+    "Request-scoped config caching",
+    "Optimistic locking for config updates",
+    "Config validation",
+    "Batch operations",
+    "RESTful configuration API",
+    "Cache metrics and monitoring"
   ],
   "testing": {
     "cli_commands": [
@@ -141,32 +274,51 @@
       "toggle - Switch shared/dedicated mode",
       "context - Change tenant context",
       "health - Check system health",
+      "config - Show current tenant config",
+      "config-get - Get a specific setting",
+      "config-set - Set a setting",
+      "config-del - Delete a setting",
+      "feature - Show all features",
+      "feature-enable - Enable a feature",
+      "feature-disable - Disable a feature",
+      "config-reset - Reset config to defaults",
+      "config-health - Check config service health",
+      "config-cache - Show config cache status",
       "exit - Exit application"
     ],
     "verification": {
       "shared_mode": "Tenants stored in aurora_shared database",
       "dedicated_mode": "Tenants stored in aurora_<tenantId> database",
-      "isolation": "Different contexts cannot see each other's tenants",
-      "http_requests": "Tenant context respected via X-Tenant-Id header in all routes"
+      "isolation": "Different contexts cannot see each other's tenants or configs",
+      "http_requests": "Tenant context respected via X-Tenant-Id header in all routes",
+      "config_cache": "Repeated requests hit cache, metrics show hits/misses",
+      "feature_toggles": "Features can be enabled/disabled per tenant independently",
+      "settings": "Settings can be set/get/deleted per tenant",
+      "concurrency": "Optimistic locking prevents lost updates"
     }
   },
   "next_enhancements": [
-    "Tenant-level configuration and resource limits",
-    "Cross-tenant federation (optional)",
+    "Config change webhooks",
+    "Config version history UI",
+    "Tenant-level resource limits",
+    "Cross-tenant federation",
     "Backup & restore per dedicated DB",
     "Multi-region tenant deployment",
     "Tenant analytics dashboard",
-    "REST API endpoints"
+    "OpenAPI/Swagger documentation"
   ],
   "metrics": {
-    "files": 8,
-    "linesOfCode": "~950",
+    "files": 15,
+    "linesOfCode": "~1850",
     "testCoverage": "Manual CLI & HTTP testing",
-    "completionStatus": "100%"
+    "completionStatus": "100%",
+    "newEndpoints": 18,
+    "newCliCommands": 9
   },
   "file_manifest": [
     "src/main/scala/com/aurora/Main.scala",
     "src/main/scala/com/aurora/api/TenantRoutes.scala",
+    "src/main/scala/com/aurora/api/TenantConfigRoutes.scala",
     "src/main/scala/com/aurora/api/TenantRoutesWithContext.scala",
     "src/main/scala/com/aurora/infrastructure/MongoDB.scala",
     "src/main/scala/com/aurora/infrastructure/TenantDatabase.scala",
@@ -174,7 +326,10 @@
     "src/main/scala/com/aurora/tenant/Tenant.scala",
     "src/main/scala/com/aurora/tenant/TenantConfig.scala",
     "src/main/scala/com/aurora/tenant/TenantConfigContext.scala",
+    "src/main/scala/com/aurora/tenant/TenantConfigService.scala",
     "src/main/scala/com/aurora/tenant/TenantContext.scala",
-    "src/main/scala/com/aurora/tenant/TenantService.scala"
+    "src/main/scala/com/aurora/tenant/TenantService.scala",
+    "src/main/resources/application.conf",
+    "src/main/resources/logback.xml"
   ]
 }
