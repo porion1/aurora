@@ -1,9 +1,9 @@
 {
   "module": "Tenant Isolation & Configuration Engine",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "status": "COMPLETED",
-  "completionDate": "2026-02-18",
-  "description": "Multi-tenant support with logical isolation, optional physical database separation for enterprise tenants, request-scoped tenant context propagation, and per-tenant configuration engine with feature toggles.",
+  "completionDate": "2026-02-19",
+  "description": "Multi-tenant support with logical isolation, optional physical database separation for enterprise tenants, request-scoped tenant context propagation, per-tenant configuration engine with feature toggles, and comprehensive tenant-level resource limits (CPU, memory, API rate, concurrent requests).",
   "purpose": [
     "Logical isolation: Each tenant's data is scoped via 'tenantId'.",
     "Optional physical database separation: Enterprise tenants can have a dedicated MongoDB database.",
@@ -13,7 +13,11 @@
     "HTTP request tenant context propagation using TenantRoutesWithContext",
     "Per-tenant configuration management with settings and feature toggles",
     "Request-scoped config caching for optimal performance",
-    "RESTful API for tenant configuration"
+    "RESTful API for tenant configuration",
+    "Tenant-level resource limits with CPU, memory, API rate, and concurrent request tracking",
+    "Real-time usage monitoring and enforcement with 429 responses",
+    "Per-tenant rate limiting with sliding windows",
+    "Soft and hard limit types for flexible enforcement"
   ],
   "data_model": {
     "tenants": {
@@ -43,6 +47,35 @@
         {"name": "tags", "type": "Set[String]", "description": "Classification tags"},
         {"name": "description", "type": "Option[String]", "description": "Human-readable description"}
       ]
+    },
+    "resource_limits": {
+      "class": "TenantResourceLimits",
+      "fields": [
+        {"name": "tenantId", "type": "String", "description": "Tenant identifier"},
+        {"name": "limits", "type": "Map[ResourceType, ResourceLimit]", "description": "Resource limit configurations"},
+        {"name": "updatedAt", "type": "Instant", "description": "Last update timestamp"},
+        {"name": "updatedBy", "type": "Option[String]", "description": "Last updater identifier"},
+        {"name": "version", "type": "Long", "description": "Optimistic locking version"}
+      ]
+    },
+    "resource_limit": {
+      "class": "ResourceLimit",
+      "fields": [
+        {"name": "value", "type": "Double", "description": "Limit value"},
+        {"name": "limitType", "type": "LimitType", "description": "Hard or Soft limit"},
+        {"name": "windowSeconds", "type": "Option[Int]", "description": "Time window for rate limits"},
+        {"name": "description", "type": "Option[String]", "description": "Human-readable description"}
+      ]
+    },
+    "resource_types": {
+      "enum": "ResourceType",
+      "values": ["CPU", "Memory", "APIRequests", "ConcurrentRequests"],
+      "description": "Types of resources that can be limited"
+    },
+    "limit_types": {
+      "enum": "LimitType",
+      "values": ["Hard", "Soft"],
+      "description": "Hard limits reject requests, soft limits only warn"
     }
   },
   "database": {
@@ -51,7 +84,8 @@
     "collections": {
       "tenants": "Tenant records",
       "tenant_configs": "Per-tenant configuration and feature toggles",
-      "tenant_configs_history": "Historical config versions (optional)"
+      "tenant_configs_history": "Historical config versions (optional)",
+      "tenant_resource_limits": "Per-tenant resource limit configurations"
     },
     "connection_pool": {
       "maxSize": 100,
@@ -66,7 +100,9 @@
       {"collection": "tenants", "field": "createdAt", "unique": false, "name": "idx_createdAt"},
       {"collection": "tenant_configs", "field": "tenantId", "unique": true, "name": "idx_config_tenant"},
       {"collection": "tenant_configs", "field": "version", "unique": false, "name": "idx_config_version"},
-      {"collection": "tenant_configs", "field": "updatedAt", "unique": false, "name": "idx_config_updated"}
+      {"collection": "tenant_configs", "field": "updatedAt", "unique": false, "name": "idx_config_updated"},
+      {"collection": "tenant_resource_limits", "field": "tenantId", "unique": true, "name": "idx_resource_limits_tenant"},
+      {"collection": "tenant_resource_limits", "field": "updatedAt", "unique": false, "name": "idx_resource_limits_updated"}
     ]
   },
   "components": {
@@ -181,6 +217,72 @@
         "src/main/scala/com/aurora/tenant/TenantConfigService.scala"
       ]
     },
+    "tenantResourceService": {
+      "class": "TenantResourceService",
+      "type": "class",
+      "description": "Service for enforcing tenant resource limits with rate limiting, concurrent request tracking, and memory monitoring",
+      "methods": [
+        {"name": "checkRequestAllowed", "description": "Check if tenant can process request (atomic check)"},
+        {"name": "trackRequestComplete", "description": "Track request completion and release resources"},
+        {"name": "setLimits", "description": "Set resource limits with MongoDB persistence"},
+        {"name": "getLimits", "description": "Get resource limits with caching"},
+        {"name": "getUsage", "description": "Get current usage statistics"},
+        {"name": "getLimitStatus", "description": "Get limit status with percentages"},
+        {"name": "getTenantMetrics", "description": "Get comprehensive tenant metrics"},
+        {"name": "getAllTenantMetrics", "description": "Get metrics for all tenants"},
+        {"name": "healthCheck", "description": "Check service health"},
+        {"name": "resetUsage", "description": "Reset usage counters"},
+        {"name": "updateMemoryUsage", "description": "Update memory usage tracking"},
+        {"name": "startCleanupScheduler", "description": "Start periodic cleanup of expired data"}
+      ],
+      "features": [
+        "Rate limiting with sliding windows",
+        "Concurrent request limiting",
+        "Memory usage tracking",
+        "MongoDB persistence",
+        "In-memory caching with TTL",
+        "Atomic check-and-increment operations",
+        "Comprehensive metrics",
+        "Scheduled cleanup",
+        "Soft and hard limit types"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/tenant/TenantResourceService.scala",
+        "src/main/scala/com/aurora/tenant/TenantResourceLimits.scala",
+        "src/main/scala/com/aurora/tenant/TenantResourceUsage.scala"
+      ]
+    },
+    "tenantResourceMiddleware": {
+      "class": "TenantResourceMiddleware",
+      "type": "class",
+      "description": "Akka HTTP middleware for enforcing resource limits per request",
+      "methods": [
+        {"name": "withResourceLimit", "description": "Directive that enforces resource limits"},
+        {"name": "withMemoryTracking", "description": "Directive to track memory usage"},
+        {"name": "withResourceLimits", "description": "Wrap routes with resource limit enforcement"}
+      ],
+      "files": [
+        "src/main/scala/com/aurora/api/TenantResourceMiddleware.scala"
+      ]
+    },
+    "tenantResourceRoutes": {
+      "class": "TenantResourceRoutes",
+      "type": "class",
+      "description": "RESTful API for tenant resource limit management",
+      "endpoints": [
+        {"path": "/api/v1/limits", "method": "GET", "description": "Get current tenant limits"},
+        {"path": "/api/v1/limits/admin", "method": "PUT", "description": "Update tenant limits (admin)"},
+        {"path": "/api/v1/limits/usage", "method": "GET", "description": "Get current usage stats"},
+        {"path": "/api/v1/limits/status", "method": "GET", "description": "Get limit status with percentages"},
+        {"path": "/api/v1/limits/reset", "method": "POST", "description": "Reset usage counters"},
+        {"path": "/api/v1/limits/admin/all", "method": "GET", "description": "Get all tenants usage (admin)"},
+        {"path": "/api/v1/limits/admin/set/{resource}/{value}", "method": "PUT", "description": "Set specific resource limit"},
+        {"path": "/api/v1/limits/health", "method": "GET", "description": "Health check"}
+      ],
+      "files": [
+        "src/main/scala/com/aurora/api/TenantResourceRoutes.scala"
+      ]
+    },
     "tenantRoutes": {
       "class": "TenantRoutes",
       "type": "object",
@@ -233,7 +335,8 @@
   "filters": [
     "activeTenantFilter: Filters tenantId + isActive=true",
     "activeTenantByIdFilter: Filters tenantId + record id + isActive=true",
-    "tenantContextFilter: Sets thread-local tenant context from X-Tenant-Id header"
+    "tenantContextFilter: Sets thread-local tenant context from X-Tenant-Id header",
+    "resourceLimitFilter: Enforces tenant resource limits via TenantResourceMiddleware"
   ],
   "features_implemented": [
     "Logical tenant isolation via tenantId",
@@ -260,7 +363,17 @@
     "Config validation",
     "Batch operations",
     "RESTful configuration API",
-    "Cache metrics and monitoring"
+    "Cache metrics and monitoring",
+    "Tenant-level resource limits (CPU, memory, API rate, concurrent requests)",
+    "Real-time usage tracking with sliding windows",
+    "Atomic rate limiting with concurrent request tracking",
+    "429 Too Many Requests responses with Retry-After headers",
+    "Per-tenant resource limit configuration API",
+    "Resource usage monitoring and status endpoints",
+    "Soft and hard limit enforcement",
+    "Automatic cleanup of expired rate limiter data",
+    "Memory usage estimation and tracking",
+    "Comprehensive tenant metrics and health checks"
   ],
   "testing": {
     "cli_commands": [
@@ -284,6 +397,10 @@
       "config-reset - Reset config to defaults",
       "config-health - Check config service health",
       "config-cache - Show config cache status",
+      "limits - Show current tenant resource limits",
+      "limits-set - Set a resource limit (CPU, Memory, APIRequests, ConcurrentRequests)",
+      "limits-usage - Show current resource usage",
+      "limits-status - Show limit status with percentages",
       "exit - Exit application"
     ],
     "verification": {
@@ -294,31 +411,42 @@
       "config_cache": "Repeated requests hit cache, metrics show hits/misses",
       "feature_toggles": "Features can be enabled/disabled per tenant independently",
       "settings": "Settings can be set/get/deleted per tenant",
-      "concurrency": "Optimistic locking prevents lost updates"
+      "concurrency": "Optimistic locking prevents lost updates",
+      "rate_limiting": "API requests limited to configured rate per tenant, returns 429 when exceeded",
+      "concurrent_limits": "Concurrent requests limited per tenant",
+      "resource_isolation": "Each tenant has independent resource counters",
+      "cpu_tracking": "CPU usage approximated by concurrent requests",
+      "memory_tracking": "Memory usage tracked and reported",
+      "limit_persistence": "Resource limits persisted in MongoDB and survive restarts"
     }
   },
   "next_enhancements": [
     "Config change webhooks",
     "Config version history UI",
-    "Tenant-level resource limits",
     "Cross-tenant federation",
     "Backup & restore per dedicated DB",
     "Multi-region tenant deployment",
     "Tenant analytics dashboard",
-    "OpenAPI/Swagger documentation"
+    "OpenAPI/Swagger documentation",
+    "Distributed rate limiting using Redis",
+    "Container-aware CPU/memory limits",
+    "Alerting when approaching limits"
   ],
   "metrics": {
-    "files": 15,
-    "linesOfCode": "~1850",
-    "testCoverage": "Manual CLI & HTTP testing",
+    "files": 18,
+    "linesOfCode": "~2400",
+    "testCoverage": "Manual CLI & HTTP testing with verified 429 responses",
     "completionStatus": "100%",
-    "newEndpoints": 18,
-    "newCliCommands": 9
+    "newEndpoints": 8,
+    "newCliCommands": 4,
+    "newFiles": 3
   },
   "file_manifest": [
     "src/main/scala/com/aurora/Main.scala",
     "src/main/scala/com/aurora/api/TenantRoutes.scala",
     "src/main/scala/com/aurora/api/TenantConfigRoutes.scala",
+    "src/main/scala/com/aurora/api/TenantResourceRoutes.scala",
+    "src/main/scala/com/aurora/api/TenantResourceMiddleware.scala",
     "src/main/scala/com/aurora/api/TenantRoutesWithContext.scala",
     "src/main/scala/com/aurora/infrastructure/MongoDB.scala",
     "src/main/scala/com/aurora/infrastructure/TenantDatabase.scala",
@@ -329,6 +457,9 @@
     "src/main/scala/com/aurora/tenant/TenantConfigService.scala",
     "src/main/scala/com/aurora/tenant/TenantContext.scala",
     "src/main/scala/com/aurora/tenant/TenantService.scala",
+    "src/main/scala/com/aurora/tenant/TenantResourceService.scala",
+    "src/main/scala/com/aurora/tenant/TenantResourceLimits.scala",
+    "src/main/scala/com/aurora/tenant/TenantResourceUsage.scala",
     "src/main/resources/application.conf",
     "src/main/resources/logback.xml"
   ]

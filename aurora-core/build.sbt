@@ -17,7 +17,8 @@ ThisBuild / scalacOptions ++= Seq(
   "-deprecation",
   "-feature",
   "-unchecked",
-  "-source:future"
+  "-source:future",
+  "-Ytasty-reader" // Add this line
 )
 
 lazy val akkaVersion       = "2.8.5"
