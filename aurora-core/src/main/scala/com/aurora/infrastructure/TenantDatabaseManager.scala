@@ -1,13 +1,16 @@
 package com.aurora.infrastructure
 
 import com.aurora.config.ApplicationConfig
+import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.{MongoClient, MongoClients, MongoDatabase}
 import com.mongodb.{ConnectionString, MongoClientSettings}
+
 import scala.collection.concurrent.TrieMap
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
 import java.util.concurrent.TimeUnit
-import com.mongodb.event.{CommandStartedEvent, CommandListener}
+import com.mongodb.event.{CommandListener, CommandStartedEvent}
+
 import java.util.logging.Level
 import java.util.logging.Logger
 
@@ -235,6 +238,85 @@ object TenantDatabaseManager {
       case e: Exception =>
         logError(s"Error closing database connections: ${e.getMessage}")
     }
+  }
+
+  // Add this to TenantDatabaseManager.scala (add it after migrateToDedicated method)
+
+  /**
+   * Provision a database for a tenant (creates it if it doesn't exist)
+   * This ensures all necessary indexes are created
+   */
+  def provisionDatabase(tenantId: String, dedicated: Boolean): Try[Boolean] = Try {
+    logInfo(s"Provisioning database for tenant '$tenantId' (dedicated=$dedicated)")
+
+    val db = getDatabase(tenantId, dedicated)
+
+    // Ping to ensure connection works
+    if (!pingDatabase(db)) {
+      throw new RuntimeException(s"Failed to connect to database for tenant $tenantId")
+    }
+
+    // Create necessary collections with indexes
+    val collections = List(
+      "tenants",
+      "tenant_configs",
+      "tenant_resource_limits",
+      "tenant_configs_history"
+    )
+
+    collections.foreach { collectionName =>
+      try {
+        // This creates the collection if it doesn't exist
+        db.getCollection(collectionName)
+        logInfo(s"Ensured collection: $collectionName")
+      } catch {
+        case e: Exception =>
+          logWarn(s"Failed to create collection $collectionName: ${e.getMessage}")
+      }
+    }
+
+    // Ensure indexes for each collection
+    import com.mongodb.client.model.Indexes.*
+
+    // Tenants collection indexes
+    val tenantsCollection = db.getCollection("tenants")
+    try {
+      tenantsCollection.createIndex(ascending("id"), new IndexOptions().unique(true))
+      tenantsCollection.createIndex(ascending("tenantId"))
+      tenantsCollection.createIndex(ascending("name"))
+      tenantsCollection.createIndex(ascending("isActive", "tenantId"))
+      tenantsCollection.createIndex(ascending("createdAt"))
+      logInfo("Tenants collection indexes created")
+    } catch {
+      case e: Exception =>
+        logWarn(s"Failed to create tenants indexes: ${e.getMessage}")
+    }
+
+    // Configs collection indexes
+    val configsCollection = db.getCollection("tenant_configs")
+    try {
+      configsCollection.createIndex(ascending("tenantId"), new IndexOptions().unique(true))
+      configsCollection.createIndex(ascending("version"))
+      configsCollection.createIndex(ascending("updatedAt"))
+      logInfo("Configs collection indexes created")
+    } catch {
+      case e: Exception =>
+        logWarn(s"Failed to create configs indexes: ${e.getMessage}")
+    }
+
+    // Resource limits collection indexes
+    val limitsCollection = db.getCollection("tenant_resource_limits")
+    try {
+      limitsCollection.createIndex(ascending("tenantId"), new IndexOptions().unique(true))
+      limitsCollection.createIndex(ascending("updatedAt"))
+      logInfo("Resource limits collection indexes created")
+    } catch {
+      case e: Exception =>
+        logWarn(s"Failed to create limits indexes: ${e.getMessage}")
+    }
+
+    logInfo(s"Database provisioning completed for tenant '$tenantId'")
+    true
   }
 
   /**

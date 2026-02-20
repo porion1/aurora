@@ -115,5 +115,25 @@ object TenantContext {
       }
     }
   }
-
+  
+  // =========================
+  // NEW: Execute with explicit dedicated flag - DIFFERENT NAME
+  // =========================
+  def withTenantAndDedicated[T](tenantId: String, dedicated: Boolean, name: Option[String] = None)(block: => T): T = {
+    val previous = Option(currentTenant.get())
+    try {
+      val info = TenantInfo(tenantId, name, dedicated)
+      currentTenant.set(info)
+      debug(s"Tenant context set with dedicated override: $tenantId (dedicated=$dedicated)")
+      block
+    } finally {
+      previous match {
+        case Some(prevInfo) =>
+          currentTenant.set(prevInfo)
+          debug(s"Restored previous tenant context: ${prevInfo.tenantId}")
+        case None =>
+          clearContext()
+      }
+    }
+  }
 }

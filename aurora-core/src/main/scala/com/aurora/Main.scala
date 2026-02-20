@@ -8,6 +8,7 @@ import com.aurora.api.{TenantRoutes, TenantRoutesWithContext, TenantConfigRoutes
 // NEW: Resource limits imports
 import com.aurora.tenant.{ResourceType, ResourceLimit, LimitType, TenantResourceLimits, TenantResourceService, TenantResourceUsageManager}
 import com.aurora.api.{TenantResourceMiddleware, TenantResourceRoutes}
+import com.aurora.api.TenantOnboardingRoutes
 
 import scala.io.StdIn
 import scala.util.{Failure, Success, Try}
@@ -111,9 +112,15 @@ object Main {
     val resourceRoutes = new TenantResourceRoutes(resourceService)
     val resourceMiddleware = new TenantResourceMiddleware(resourceService)
 
+    // Create onboarding routes
+    val onboardingRoutes = new TenantOnboardingRoutes()
+
     // Wrap all routes with resource limit middleware
     val allRoutes: Route = resourceMiddleware.withResourceLimits(
-      TenantRoutes.routes ~ TenantConfigRoutes.routes ~ resourceRoutes.routes
+      TenantRoutes.routes ~
+        TenantConfigRoutes.routes ~
+        resourceRoutes.routes ~
+        onboardingRoutes.routes // Add this line
     )
 
     val serverBindingFuture: Future[Http.ServerBinding] =

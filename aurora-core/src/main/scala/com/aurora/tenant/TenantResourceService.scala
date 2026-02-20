@@ -13,6 +13,12 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
+// Import for onboarding service
+import com.aurora.tenant.TenantOnboardingService
+
+// Import DefaultLimits from TenantResourceLimits (remove the duplicate definition below)
+import com.aurora.tenant.DefaultLimits
+
 /**
  * Production-ready service for enforcing tenant resource limits
  */
@@ -609,6 +615,66 @@ class TenantResourceService(
     } catch {
       case e: Exception =>
         logError(s"Failed to update memory usage for tenant $tenantId: ${e.getMessage}")
+    }
+  }
+
+  /**
+   * Initialize resource limits with a template
+   */
+  def initializeWithTemplate(
+                              tenantId: String,
+                              template: TenantOnboardingService.TenantTemplate,
+                              requirements: TenantService.TenantRequirements
+                            )(implicit ec: ExecutionContext): Future[TenantResourceLimits] = {
+
+    logInfo(s"Initializing resource limits for tenant $tenantId with template ${template.tier}")
+
+    // Start with template limits
+    var limits = template.limitsTemplate.copy(tenantId = tenantId)
+
+    // Override with requirements
+    if (requirements.enterprise) {
+      // Enterprise tenants get higher limits
+      limits = limits.copy(
+        limits = limits.limits ++ Map(
+          ResourceType.APIRequests -> ResourceLimit(
+            value = 10000.0,
+            limitType = LimitType.Hard,
+            windowSeconds = Some(60),
+            description = Some("Enterprise rate limit")
+          ),
+          ResourceType.ConcurrentRequests -> ResourceLimit(
+            value = 100.0,
+            limitType = LimitType.Hard,
+            windowSeconds = None,
+            description = Some("Enterprise concurrent limit")
+          ),
+          ResourceType.Memory -> ResourceLimit(
+            value = 8192.0,
+            limitType = LimitType.Soft,
+            windowSeconds = None,
+            description = Some("Enterprise memory limit")
+          )
+        )
+      )
+    }
+
+    if (requirements.expectedUsers > 1000) {
+      // Scale limits based on expected users
+      limits.limits.get(ResourceType.APIRequests).foreach { limit =>
+        val scaledValue = limit.value * (requirements.expectedUsers / 100.0)
+        limits = limits.copy(
+          limits = limits.limits + (ResourceType.APIRequests -> limit.copy(
+            value = scaledValue.min(100000) // Cap at 100k
+          ))
+        )
+      }
+    }
+
+    // Save to MongoDB
+    setLimits(tenantId, limits).map { _ =>
+      logInfo(s"Resource limits initialized for tenant $tenantId")
+      limits
     }
   }
 }

@@ -379,9 +379,19 @@ object TenantConfigService {
   /**
    * Reset config to defaults
    */
+  /**
+   * Reset config to defaults
+   */
   def resetToDefaults(tenantId: String): Try[TenantConfig] = {
-    val defaultConfig = getDefaultConfig(tenantId)
-    updateConfig(defaultConfig)
+    // First get the current config to have the correct version
+    getConfig(tenantId).flatMap { currentConfig =>
+      val defaultConfig = getDefaultConfig(tenantId).copy(version = currentConfig.version)
+      updateConfig(defaultConfig)
+    }
+  }
+
+  def getDefaultConfigTemplate(tenantId: String): TenantConfig = {
+    getDefaultConfig(tenantId)
   }
 
   /**
@@ -502,5 +512,73 @@ object TenantConfigService {
   def clearAllCache(): Unit = {
     configCache.clear()
     if (logger.isInfoEnabled) logger.info("All config cache cleared")
+  }
+
+  // Add these imports at the top if not already present
+
+  import com.aurora.tenant.TenantOnboardingService
+
+  // Add this method to TenantConfigService.scala (add it after getDefaultConfig)
+
+  /**
+   * Initialize tenant configuration with a template
+   */
+  def initializeWithTemplate(
+                              tenantId: String,
+                              template: TenantOnboardingService.TenantTemplate,
+                              requirements: TenantService.TenantRequirements
+                            ): Try[TenantConfig] = Try {
+
+    logger.info(s"Initializing config for tenant $tenantId with template ${template.tier}")
+
+    // Start with template config
+    var config = template.configTemplate.copy(tenantId = tenantId)
+
+    // Override with requirements
+    if (requirements.enterprise) {
+      config = config.copy(
+        features = config.features ++ Map(
+          "dedicated.db" -> true,
+          "audit.logging" -> true
+        ),
+        settings = config.settings ++ Map(
+          "compliance.level" -> "high",
+          "backup.frequency" -> "daily"
+        )
+      )
+    }
+
+    if (requirements.compliance) {
+      config = config.copy(
+        features = config.features ++ Map(
+          "audit.logging" -> true,
+          "data.encryption" -> true
+        ),
+        settings = config.settings ++ Map(
+          "compliance.standard" -> "SOC2",
+          "retention.days" -> "365"
+        )
+      )
+    }
+
+    if (requirements.customDomain) {
+      config = config.copy(
+        settings = config.settings + ("domain.custom" -> "true")
+      )
+    }
+
+    // Update expected users in settings
+    if (requirements.expectedUsers > 0) {
+      config = config.copy(
+        settings = config.settings + ("expected.users" -> requirements.expectedUsers.toString)
+      )
+    }
+
+    // Save to database
+    val savedConfig = updateConfig(config).get
+
+    logger.info(s"Config initialized for tenant $tenantId with ${savedConfig.features.size} features and ${savedConfig.settings.size} settings")
+
+    savedConfig
   }
 }

@@ -121,12 +121,12 @@ object TenantService {
     // NEW: Create default TenantConfig
     // -------------------------
     import TenantConfigService.*
-    val defaultConfig = TenantConfig(tenantId = tenant.id)
+    // Use the public method to get default config template
+    val defaultConfig = getDefaultConfigTemplate(tenant.id)
     updateConfig(defaultConfig) match {
-      case Success(_) => logInfo(s"Default config created for tenant ${tenant.id}")
+      case Success(_) => logInfo(s"Default config created for tenant ${tenant.id} with settings and features")
       case Failure(ex) => logWarn(s"Failed to create default config for tenant ${tenant.id}: ${ex.getMessage}")
     }
-
     tenant
   }
 
