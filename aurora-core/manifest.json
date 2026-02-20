@@ -1,9 +1,9 @@
 {
   "module": "Tenant Isolation & Configuration Engine",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "status": "COMPLETED",
-  "completionDate": "2026-02-19",
-  "description": "Multi-tenant support with logical isolation, optional physical database separation for enterprise tenants, request-scoped tenant context propagation, per-tenant configuration engine with feature toggles, and comprehensive tenant-level resource limits (CPU, memory, API rate, concurrent requests).",
+  "completionDate": "2026-02-20",
+  "description": "Multi-tenant support with logical isolation, optional physical database separation for enterprise tenants, request-scoped tenant context propagation, per-tenant configuration engine with feature toggles, comprehensive tenant-level resource limits, and automated tenant onboarding with database provisioning.",
   "purpose": [
     "Logical isolation: Each tenant's data is scoped via 'tenantId'.",
     "Optional physical database separation: Enterprise tenants can have a dedicated MongoDB database.",
@@ -17,7 +17,15 @@
     "Tenant-level resource limits with CPU, memory, API rate, and concurrent request tracking",
     "Real-time usage monitoring and enforcement with 429 responses",
     "Per-tenant rate limiting with sliding windows",
-    "Soft and hard limit types for flexible enforcement"
+    "Soft and hard limit types for flexible enforcement",
+    "**NEW: Automated tenant onboarding with single API/CLI command**",
+    "**NEW: Tier-based tenant templates (free/pro/enterprise) with predefined configs and limits**",
+    "**NEW: Automatic database provisioning with index creation**",
+    "**NEW: Batch tenant onboarding for bulk operations**",
+    "**NEW: Webhook notifications for onboarding completion**",
+    "**NEW: Template-based configuration initialization**",
+    "**NEW: Template-based resource limit initialization**",
+    "**NEW: Automatic detection and provisioning of dedicated databases for enterprise tenants**"
   ],
   "data_model": {
     "tenants": {
@@ -115,6 +123,7 @@
         {"name": "getCurrentTenantId", "description": "Get current tenant ID"},
         {"name": "isDedicated", "description": "Check if current tenant uses dedicated DB"},
         {"name": "withTenant", "description": "Execute block with tenant context"},
+        {"name": "withTenantAndDedicated", "description": "Execute block with explicit dedicated flag"},
         {"name": "setFullContext", "description": "Set both tenant and config context"},
         {"name": "withFullTenant", "description": "Execute block with full context"}
       ],
@@ -142,10 +151,11 @@
     "tenantDatabaseManager": {
       "class": "TenantDatabaseManager",
       "type": "object",
-      "description": "Multi-tenant database connection management with connection pooling",
+      "description": "Multi-tenant database connection management with connection pooling and automated provisioning",
       "methods": [
         {"name": "getDatabase", "description": "Get database for tenant (shared/dedicated)"},
         {"name": "determineTenantType", "description": "Auto-detect if tenant needs dedicated DB"},
+        {"name": "provisionDatabase", "description": "**NEW: Automatically provision database with indexes**"},
         {"name": "migrateToDedicated", "description": "Migrate tenant from shared to dedicated DB"},
         {"name": "pingDatabase", "description": "Health check for database connection"},
         {"name": "getDatabaseStats", "description": "Get database statistics"},
@@ -155,6 +165,7 @@
         "Connection pooling",
         "Tenant database caching",
         "Auto-detection logic",
+        "**Automatic database provisioning**",
         "Migration tools",
         "Health monitoring"
       ],
@@ -184,7 +195,7 @@
     "tenantConfigService": {
       "class": "TenantConfigService",
       "type": "object",
-      "description": "Per-tenant configuration and feature toggle management",
+      "description": "Per-tenant configuration and feature toggle management with template support",
       "methods": [
         {"name": "getConfig", "description": "Fetch tenant config with caching"},
         {"name": "updateConfig", "description": "Update config with optimistic locking"},
@@ -203,7 +214,9 @@
         {"name": "resetToDefaults", "description": "Reset config to defaults"},
         {"name": "healthCheck", "description": "Check config service health"},
         {"name": "clearCache", "description": "Clear service cache"},
-        {"name": "configExists", "description": "Check if config exists"}
+        {"name": "configExists", "description": "Check if config exists"},
+        {"name": "getDefaultConfigTemplate", "description": "**NEW: Get default config template for tenant tiers**"},
+        {"name": "initializeWithTemplate", "description": "**NEW: Initialize tenant config from template**"}
       ],
       "features": [
         "In-memory caching with TTL",
@@ -211,7 +224,8 @@
         "Validation rules",
         "Batch operations",
         "Health monitoring",
-        "Audit logging"
+        "Audit logging",
+        "**Template-based configuration initialization**"
       ],
       "files": [
         "src/main/scala/com/aurora/tenant/TenantConfigService.scala"
@@ -220,7 +234,7 @@
     "tenantResourceService": {
       "class": "TenantResourceService",
       "type": "class",
-      "description": "Service for enforcing tenant resource limits with rate limiting, concurrent request tracking, and memory monitoring",
+      "description": "Service for enforcing tenant resource limits with template support",
       "methods": [
         {"name": "checkRequestAllowed", "description": "Check if tenant can process request (atomic check)"},
         {"name": "trackRequestComplete", "description": "Track request completion and release resources"},
@@ -233,7 +247,8 @@
         {"name": "healthCheck", "description": "Check service health"},
         {"name": "resetUsage", "description": "Reset usage counters"},
         {"name": "updateMemoryUsage", "description": "Update memory usage tracking"},
-        {"name": "startCleanupScheduler", "description": "Start periodic cleanup of expired data"}
+        {"name": "startCleanupScheduler", "description": "Start periodic cleanup of expired data"},
+        {"name": "initializeWithTemplate", "description": "**NEW: Initialize resource limits from template**"}
       ],
       "features": [
         "Rate limiting with sliding windows",
@@ -244,12 +259,36 @@
         "Atomic check-and-increment operations",
         "Comprehensive metrics",
         "Scheduled cleanup",
-        "Soft and hard limit types"
+        "Soft and hard limit types",
+        "**Template-based limit initialization**"
       ],
       "files": [
         "src/main/scala/com/aurora/tenant/TenantResourceService.scala",
         "src/main/scala/com/aurora/tenant/TenantResourceLimits.scala",
         "src/main/scala/com/aurora/tenant/TenantResourceUsage.scala"
+      ]
+    },
+    "tenantOnboardingService": {
+      "class": "TenantOnboardingService",
+      "type": "object",
+      "description": "**NEW: Orchestrates automated tenant onboarding with templates and provisioning**",
+      "methods": [
+        {"name": "onboardTenant", "description": "Complete onboarding flow for a single tenant"},
+        {"name": "onboardTenantsBatch", "description": "Batch onboard multiple tenants"},
+        {"name": "validateOnboardingRequest", "description": "Validate tenant creation request"},
+        {"name": "sendWebhookNotification", "description": "Send webhook on onboarding completion"}
+      ],
+      "features": [
+        "**Tier-based templates (free/pro/enterprise)**",
+        "**Automatic database provisioning**",
+        "**Configuration template initialization**",
+        "**Resource limit template initialization**",
+        "**Webhook notifications**",
+        "**Batch operations**",
+        "**Comprehensive validation**"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/tenant/TenantOnboardingService.scala"
       ]
     },
     "tenantResourceMiddleware": {
@@ -330,6 +369,87 @@
       "files": [
         "src/main/scala/com/aurora/api/TenantRoutesWithContext.scala"
       ]
+    },
+    "tenantOnboardingRoutes": {
+      "class": "TenantOnboardingRoutes",
+      "type": "class",
+      "description": "**NEW: RESTful API for automated tenant onboarding**",
+      "endpoints": [
+        {"path": "/api/v1/onboarding", "method": "POST", "description": "Onboard a new tenant with tier and requirements"},
+        {"path": "/api/v1/onboarding/batch", "method": "POST", "description": "Batch onboard multiple tenants"},
+        {"path": "/api/v1/onboarding/templates", "method": "GET", "description": "List available tenant templates"},
+        {"path": "/api/v1/onboarding/health", "method": "GET", "description": "Onboarding service health check"}
+      ],
+      "files": [
+        "src/main/scala/com/aurora/api/TenantOnboardingRoutes.scala"
+      ]
+    }
+  },
+  "templates": {
+    "free": {
+      "description": "Free tier tenant with shared database and basic limits",
+      "settings": {
+        "ui.theme": "light",
+        "items.per.page": "20",
+        "session.timeout.minutes": "30",
+        "storage.limit.mb": "100"
+      },
+      "features": {
+        "advanced.search": false,
+        "bulk.operations": false,
+        "audit.logging": true,
+        "api.access": true
+      },
+      "limits": {
+        "APIRequests": "60 per minute",
+        "ConcurrentRequests": "5",
+        "Memory": "256MB",
+        "CPU": "0.5 cores"
+      }
+    },
+    "pro": {
+      "description": "Pro tier tenant with shared database and enhanced limits",
+      "settings": {
+        "ui.theme": "dark",
+        "items.per.page": "100",
+        "session.timeout.minutes": "120",
+        "storage.limit.mb": "1024"
+      },
+      "features": {
+        "advanced.search": true,
+        "bulk.operations": true,
+        "audit.logging": true,
+        "api.access": true
+      },
+      "limits": {
+        "APIRequests": "300 per minute",
+        "ConcurrentRequests": "20",
+        "Memory": "1GB",
+        "CPU": "2 cores"
+      }
+    },
+    "enterprise": {
+      "description": "Enterprise tier with dedicated database and highest limits",
+      "settings": {
+        "ui.theme": "dark",
+        "items.per.page": "500",
+        "session.timeout.minutes": "480",
+        "storage.limit.mb": "10240",
+        "dedicated.db": "true"
+      },
+      "features": {
+        "advanced.search": true,
+        "bulk.operations": true,
+        "audit.logging": true,
+        "api.access": true,
+        "dedicated.db": true
+      },
+      "limits": {
+        "APIRequests": "1000 per minute",
+        "ConcurrentRequests": "50",
+        "Memory": "4GB",
+        "CPU": "8 cores"
+      }
     }
   },
   "filters": [
@@ -373,7 +493,15 @@
     "Soft and hard limit enforcement",
     "Automatic cleanup of expired rate limiter data",
     "Memory usage estimation and tracking",
-    "Comprehensive tenant metrics and health checks"
+    "Comprehensive tenant metrics and health checks",
+    "**NEW: Automated tenant onboarding with single command**",
+    "**NEW: Tier-based tenant templates (free/pro/enterprise)**",
+    "**NEW: Automatic database provisioning with indexes**",
+    "**NEW: Batch tenant onboarding**",
+    "**NEW: Webhook notifications on completion**",
+    "**NEW: Template-based configuration initialization**",
+    "**NEW: Template-based resource limit initialization**",
+    "**NEW: REST API for onboarding operations**"
   ],
   "testing": {
     "cli_commands": [
@@ -417,7 +545,11 @@
       "resource_isolation": "Each tenant has independent resource counters",
       "cpu_tracking": "CPU usage approximated by concurrent requests",
       "memory_tracking": "Memory usage tracked and reported",
-      "limit_persistence": "Resource limits persisted in MongoDB and survive restarts"
+      "limit_persistence": "Resource limits persisted in MongoDB and survive restarts",
+      "**onboarding_automation**: "Tenants created with proper defaults via single command",
+      "**template_support**: "Different tiers get appropriate configs and limits",
+      "**database_provisioning**: "Enterprise tenants get dedicated databases automatically",
+      "**batch_onboarding**: "Multiple tenants can be created in one operation"
     }
   },
   "next_enhancements": [
@@ -433,13 +565,13 @@
     "Alerting when approaching limits"
   ],
   "metrics": {
-    "files": 18,
-    "linesOfCode": "~2400",
-    "testCoverage": "Manual CLI & HTTP testing with verified 429 responses",
+    "files": 21,
+    "linesOfCode": "~2800",
+    "testCoverage": "Manual CLI & HTTP testing with verified 429 responses and onboarding flows",
     "completionStatus": "100%",
-    "newEndpoints": 8,
+    "newEndpoints": 12,
     "newCliCommands": 4,
-    "newFiles": 3
+    "newFiles": 5
   },
   "file_manifest": [
     "src/main/scala/com/aurora/Main.scala",
@@ -448,6 +580,7 @@
     "src/main/scala/com/aurora/api/TenantResourceRoutes.scala",
     "src/main/scala/com/aurora/api/TenantResourceMiddleware.scala",
     "src/main/scala/com/aurora/api/TenantRoutesWithContext.scala",
+    "src/main/scala/com/aurora/api/TenantOnboardingRoutes.scala",
     "src/main/scala/com/aurora/infrastructure/MongoDB.scala",
     "src/main/scala/com/aurora/infrastructure/TenantDatabase.scala",
     "src/main/scala/com/aurora/infrastructure/TenantDatabaseManager.scala",
@@ -460,6 +593,7 @@
     "src/main/scala/com/aurora/tenant/TenantResourceService.scala",
     "src/main/scala/com/aurora/tenant/TenantResourceLimits.scala",
     "src/main/scala/com/aurora/tenant/TenantResourceUsage.scala",
+    "src/main/scala/com/aurora/tenant/TenantOnboardingService.scala",
     "src/main/resources/application.conf",
     "src/main/resources/logback.xml"
   ]
