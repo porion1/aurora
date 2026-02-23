@@ -141,6 +141,7 @@ class TenantResourceService(
 
   /**
    * Check if a tenant can process a new request with atomic operations
+   *
    * @return Right(Unit) if allowed, Left(error message) if limit exceeded
    */
   def checkRequestAllowed(tenantId: String): Either[String, Unit] = {
@@ -676,5 +677,71 @@ class TenantResourceService(
       logInfo(s"Resource limits initialized for tenant $tenantId")
       limits
     }
+  }
+}
+
+// ==========================================================================
+// Companion Object (MOVED OUTSIDE the class)
+// ==========================================================================
+
+object TenantResourceService {
+
+  // Lazy initialization to avoid circular dependencies
+  private lazy val instance: TenantResourceService = new TenantResourceService()
+
+  /**
+   * Get limit status with percentages for dashboard
+   */
+  def getLimitStatus(tenantId: String): Map[String, Map[String, Any]] = {
+    instance.getLimitStatus(tenantId)
+  }
+
+  /**
+   * Get resource limits with caching (static version)
+   */
+  def getLimits(tenantId: String): Option[TenantResourceLimits] = {
+    instance.getLimits(tenantId)
+  }
+
+  /**
+   * Get comprehensive metrics for a tenant (static version)
+   */
+  def getTenantMetrics(tenantId: String): Map[String, Any] = {
+    instance.getTenantMetrics(tenantId)
+  }
+
+  /**
+   * Get metrics for all tenants (static version)
+   */
+  def getAllTenantMetrics: Map[String, Map[String, Any]] = {
+    instance.getAllTenantMetrics
+  }
+
+  /**
+   * Health check (static version)
+   */
+  def healthCheck(): Map[String, Any] = {
+    instance.healthCheck()
+  }
+
+  /**
+   * Reset usage counters for a tenant (static version)
+   */
+  def resetUsage(tenantId: String): Unit = {
+    instance.resetUsage(tenantId)
+  }
+
+  /**
+   * Check if request is allowed (static version)
+   */
+  def checkRequestAllowed(tenantId: String): Either[String, Unit] = {
+    instance.checkRequestAllowed(tenantId)
+  }
+
+  /**
+   * Track request completion (static version)
+   */
+  def trackRequestComplete(tenantId: String, responseTimeMs: Long = 0): Unit = {
+    instance.trackRequestComplete(tenantId, responseTimeMs)
   }
 }

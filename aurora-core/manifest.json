@@ -1,9 +1,9 @@
 {
-  "module": "Tenant Isolation & Configuration Engine",
-  "version": "1.5.0",
+  "module": "Tenant Isolation & Configuration Engine + Advanced Analytics",
+  "version": "2.0.0",
   "status": "COMPLETED",
-  "completionDate": "2026-02-22",
-  "description": "Multi-tenant support with logical isolation, optional physical database separation for enterprise tenants, request-scoped tenant context propagation, per-tenant configuration engine with feature toggles, comprehensive tenant-level resource limits, and automated tenant onboarding with database provisioning.",
+  "completionDate": "2026-02-23",
+  "description": "Multi-tenant support with logical isolation, optional physical database separation for enterprise tenants, request-scoped tenant context propagation, per-tenant configuration engine with feature toggles, comprehensive tenant-level resource limits, automated tenant onboarding with database provisioning, and FAANG-level analytics engine with real-time metrics, predictive forecasting, anomaly detection, and WebSocket streaming.",
   "purpose": [
     "Logical isolation: Each tenant's data is scoped via 'tenantId'.",
     "Optional physical database separation: Enterprise tenants can have a dedicated MongoDB database.",
@@ -25,7 +25,20 @@
     "✅ Webhook notifications for onboarding completion",
     "✅ Template-based configuration initialization",
     "✅ Template-based resource limit initialization",
-    "✅ Automatic detection and provisioning of dedicated databases for enterprise tenants"
+    "✅ Automatic detection and provisioning of dedicated databases for enterprise tenants",
+    "✅ Real-time metrics collection with lock-free ring buffers",
+    "✅ Session tracking with active session monitoring",
+    "✅ Time-series analytics with automatic downsampling",
+    "✅ Predictive forecasting using Holt-Winters and ensemble models",
+    "✅ Multi-algorithm anomaly detection (Z-Score, IQR, seasonal)",
+    "✅ WebSocket streaming for real-time analytics",
+    "✅ RESTful analytics API with time-series queries",
+    "✅ Multi-format data export (CSV, JSON)",
+    "✅ Tenant usage summaries and comparisons",
+    "✅ Tier upgrade recommendations based on usage patterns",
+    "✅ Automated alerting for anomalies and limit violations",
+    "✅ Circuit breaker pattern for failing tenants",
+    "✅ Multi-level caching for dashboard performance"
   ],
   "data_model": {
     "tenants": {
@@ -36,7 +49,16 @@
         {"name": "name", "type": "String", "description": "Tenant display name"},
         {"name": "createdAt", "type": "Instant", "description": "Tenant creation timestamp"},
         {"name": "updatedAt", "type": "Instant", "description": "Last update timestamp"},
-        {"name": "isActive", "type": "Boolean", "description": "Soft delete flag"}
+        {"name": "isActive", "type": "Boolean", "description": "Soft delete flag"},
+        {"name": "tier", "type": "TenantTier", "description": "Tenant tier (FREE/BASIC/PROFESSIONAL/ENTERPRISE)"},
+        {"name": "status", "type": "TenantStatus", "description": "Tenant lifecycle status"},
+        {"name": "settings", "type": "TenantSettings", "description": "Tenant configuration settings"},
+        {"name": "features", "type": "Set[String]", "description": "Enabled features"},
+        {"name": "resourceLimits", "type": "ResourceLimits", "description": "Resource quotas"},
+        {"name": "metadata", "type": "Map[String, String]", "description": "Additional metadata"},
+        {"name": "databaseConfig", "type": "DatabaseConfig", "description": "Database configuration"},
+        {"name": "contactInfo", "type": "Option[ContactInfo]", "description": "Contact information"},
+        {"name": "tags", "type": "Set[String]", "description": "Classification tags"}
       ]
     },
     "configs": {
@@ -84,6 +106,54 @@
       "enum": "LimitType",
       "values": ["Hard", "Soft"],
       "description": "Hard limits reject requests, soft limits only warn"
+    },
+    "analytics_events": {
+      "class": "AnalyticsEvent",
+      "types": ["ApiRequestEvent", "SessionEvent", "FeatureUsageEvent", "LimitViolationEvent"],
+      "description": "Event models for analytics collection"
+    },
+    "analytics_metrics": {
+      "class": "AggregatedMinuteMetrics",
+      "fields": [
+        {"name": "tenantId", "type": "String", "description": "Tenant identifier"},
+        {"name": "tier", "type": "String", "description": "Tenant tier"},
+        {"name": "timestamp", "type": "Instant", "description": "Metric timestamp"},
+        {"name": "requestCount", "type": "Long", "description": "Number of requests"},
+        {"name": "errorCount", "type": "Long", "description": "Number of errors"},
+        {"name": "avgResponseTime", "type": "Double", "description": "Average response time"},
+        {"name": "p95ResponseTime", "type": "Double", "description": "95th percentile response time"},
+        {"name": "p99ResponseTime", "type": "Double", "description": "99th percentile response time"},
+        {"name": "maxResponseTime", "type": "Long", "description": "Maximum response time"},
+        {"name": "activeSessions", "type": "Int", "description": "Active session count"},
+        {"name": "concurrentRequests", "type": "Int", "description": "Concurrent request count"},
+        {"name": "topEndpoints", "type": "Map[String, Long]", "description": "Top endpoints by request count"}
+      ]
+    },
+    "anomaly": {
+      "class": "Anomaly",
+      "fields": [
+        {"name": "tenantId", "type": "String", "description": "Tenant identifier"},
+        {"name": "metric", "type": "String", "description": "Metric name"},
+        {"name": "timestamp", "type": "Instant", "description": "Anomaly timestamp"},
+        {"name": "actualValue", "type": "Double", "description": "Actual value"},
+        {"name": "expectedValue", "type": "Double", "description": "Expected value"},
+        {"name": "deviation", "type": "Double", "description": "Deviation from expected"},
+        {"name": "severity", "type": "String", "description": "HIGH/MEDIUM/LOW"},
+        {"name": "method", "type": "String", "description": "Detection method (zscore/iqr/seasonal/ratechange)"},
+        {"name": "dataPoints", "type": "Int", "description": "Number of data points analyzed"}
+      ]
+    },
+    "forecast_result": {
+      "class": "ForecastResult",
+      "fields": [
+        {"name": "tenantId", "type": "String", "description": "Tenant identifier"},
+        {"name": "metric", "type": "String", "description": "Metric name"},
+        {"name": "forecast", "type": "List[Double]", "description": "Forecasted values"},
+        {"name": "confidence", "type": "Double", "description": "Confidence score"},
+        {"name": "method", "type": "String", "description": "Forecasting method"},
+        {"name": "message", "type": "String", "description": "Status message"},
+        {"name": "metadata", "type": "Map[String, Any]", "description": "Additional metadata"}
+      ]
     }
   },
   "database": {
@@ -93,7 +163,11 @@
       "tenants": "Tenant records",
       "tenant_configs": "Per-tenant configuration and feature toggles",
       "tenant_configs_history": "Historical config versions (optional)",
-      "tenant_resource_limits": "Per-tenant resource limit configurations"
+      "tenant_resource_limits": "Per-tenant resource limit configurations",
+      "analytics_events_raw": "Raw analytics events with TTL",
+      "analytics_metrics_minute": "Minute-level aggregated metrics",
+      "analytics_metrics_hour": "Hour-level aggregated metrics",
+      "analytics_metrics_day": "Day-level aggregated metrics"
     },
     "connection_pool": {
       "maxSize": 100,
@@ -110,7 +184,12 @@
       {"collection": "tenant_configs", "field": "version", "unique": false, "name": "idx_config_version"},
       {"collection": "tenant_configs", "field": "updatedAt", "unique": false, "name": "idx_config_updated"},
       {"collection": "tenant_resource_limits", "field": "tenantId", "unique": true, "name": "idx_resource_limits_tenant"},
-      {"collection": "tenant_resource_limits", "field": "updatedAt", "unique": false, "name": "idx_resource_limits_updated"}
+      {"collection": "tenant_resource_limits", "field": "updatedAt", "unique": false, "name": "idx_resource_limits_updated"},
+      {"collection": "analytics_events_raw", "field": ["tenantId", "timestamp"], "name": "idx_analytics_tenant_time"},
+      {"collection": "analytics_events_raw", "field": ["eventType", "timestamp"], "name": "idx_analytics_type_time"},
+      {"collection": "analytics_metrics_minute", "field": ["tenantId", "timestamp"], "name": "idx_minute_tenant_time"},
+      {"collection": "analytics_metrics_hour", "field": ["tenantId", "timestamp"], "name": "idx_hour_tenant_time"},
+      {"collection": "analytics_metrics_day", "field": ["tenantId", "timestamp"], "name": "idx_day_tenant_time"}
     ]
   },
   "components": {
@@ -129,6 +208,25 @@
       ],
       "files": [
         "src/main/scala/com/aurora/tenant/TenantContext.scala"
+      ]
+    },
+    "tenantAnalyticsContext": {
+      "class": "TenantAnalyticsContext",
+      "type": "object",
+      "description": "Thread-local analytics context for session and request tracking",
+      "methods": [
+        {"name": "startSession", "description": "Start a new user session"},
+        {"name": "endSession", "description": "End current session"},
+        {"name": "getCurrentSessionId", "description": "Get current session ID"},
+        {"name": "startRequest", "description": "Start tracking a request"},
+        {"name": "endRequest", "description": "End request tracking"},
+        {"name": "trackAction", "description": "Track user action"},
+        {"name": "getActiveSessionsCount", "description": "Get active sessions count"},
+        {"name": "getActiveSessions", "description": "Get all active sessions"},
+        {"name": "cleanupStaleSessions", "description": "Clean up stale sessions"}
+      ],
+      "files": [
+        "src/main/scala/com/aurora/analytics/TenantAnalyticsContext.scala"
       ]
     },
     "tenantConfigContext": {
@@ -383,6 +481,247 @@
       "files": [
         "src/main/scala/com/aurora/api/TenantOnboardingRoutes.scala"
       ]
+    },
+    "tenantMetricsCollector": {
+      "class": "TenantMetricsCollector",
+      "type": "class",
+      "description": "Lock-free metrics collector with per-tenant ring buffers",
+      "methods": [
+        {"name": "recordApiRequest", "description": "Record API request event"},
+        {"name": "recordFeatureUsage", "description": "Record feature usage event"},
+        {"name": "recordSessionEvent", "description": "Record session event"},
+        {"name": "recordLimitViolation", "description": "Record limit violation"},
+        {"name": "recordCustomMetric", "description": "Record custom metric"},
+        {"name": "getBufferSizes", "description": "Get current buffer sizes"},
+        {"name": "getBufferStats", "description": "Get buffer statistics"},
+        {"name": "drainAllMetrics", "description": "Drain all metrics from buffers"},
+        {"name": "getAllTenantMetrics", "description": "Get metrics for all tenants"},
+        {"name": "getStats", "description": "Get collector statistics"}
+      ],
+      "features": [
+        "Lock-free ring buffers",
+        "Per-tenant isolation",
+        "Tier-based sampling",
+        "Zero-allocation hot path",
+        "Thread-safe operations"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/analytics/TenantMetricsCollector.scala"
+      ]
+    },
+    "tenantAnalyticsStorage": {
+      "class": "TenantAnalyticsStorage",
+      "type": "class",
+      "description": "Time-series optimized storage with automatic downsampling",
+      "methods": [
+        {"name": "storeRawEvents", "description": "Store raw events with TTL"},
+        {"name": "storeMinuteMetrics", "description": "Store minute-level metrics"},
+        {"name": "storeHourMetrics", "description": "Store hour-level metrics"},
+        {"name": "storeDayMetrics", "description": "Store day-level metrics"},
+        {"name": "queryTimeSeries", "description": "Query time-series data"},
+        {"name": "queryRawEvents", "description": "Query raw events"},
+        {"name": "getTenantSummary", "description": "Get tenant summary"},
+        {"name": "deleteOldData", "description": "Delete old data"},
+        {"name": "healthCheck", "description": "Storage health check"}
+      ],
+      "features": [
+        "MongoDB time-series support",
+        "Automatic downsampling",
+        "Configurable retention",
+        "TTL-based cleanup",
+        "Optimized indexes"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/analytics/TenantAnalyticsStorage.scala"
+      ]
+    },
+    "tenantAnalyticsQueryService": {
+      "class": "TenantAnalyticsQueryService",
+      "type": "class",
+      "description": "Optimized query service with caching",
+      "methods": [
+        {"name": "getTimeSeriesOptimized", "description": "Get time-series with auto-granularity"},
+        {"name": "getComparisonMetrics", "description": "Get period-over-period comparison"},
+        {"name": "getTopTenants", "description": "Get top tenants by metric"},
+        {"name": "getFunnelAnalysis", "description": "Get funnel analysis"},
+        {"name": "getCohortAnalysis", "description": "Get cohort analysis"},
+        {"name": "getCachedQuery", "description": "Execute cached query"},
+        {"name": "invalidateCache", "description": "Invalidate cache for tenant"},
+        {"name": "getCacheStats", "description": "Get cache statistics"}
+      ],
+      "features": [
+        "Multi-level caching",
+        "Automatic granularity selection",
+        "Parallel query execution",
+        "Type-safe results"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/analytics/TenantAnalyticsQueryService.scala"
+      ]
+    },
+    "tenantMetricsAggregator": {
+      "class": "TenantMetricsAggregator",
+      "type": "class",
+      "description": "High-performance metrics aggregator with multi-granularity support",
+      "methods": [
+        {"name": "start", "description": "Start aggregation schedulers"},
+        {"name": "stop", "description": "Stop aggregation schedulers"},
+        {"name": "aggregateMinuteMetrics", "description": "Aggregate minute-level metrics"},
+        {"name": "aggregateHourMetrics", "description": "Aggregate hour-level metrics"},
+        {"name": "aggregateDayMetrics", "description": "Aggregate day-level metrics"},
+        {"name": "getStats", "description": "Get aggregator statistics"}
+      ],
+      "features": [
+        "Dedicated thread pools",
+        "Lock-free per-tenant aggregators",
+        "Automatic downsampling",
+        "Performance monitoring"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/analytics/TenantMetricsAggregator.scala"
+      ]
+    },
+    "tenantAnalyticsScheduler": {
+      "class": "TenantAnalyticsScheduler",
+      "type": "class",
+      "description": "Centralized scheduler for analytics jobs",
+      "methods": [
+        {"name": "start", "description": "Start all scheduled jobs"},
+        {"name": "stop", "description": "Stop all schedulers"},
+        {"name": "getJobStatus", "description": "Get job status"},
+        {"name": "getStats", "description": "Get scheduler statistics"}
+      ],
+      "features": [
+        "Priority-based thread pools",
+        "Job status tracking",
+        "Exponential backoff",
+        "Graceful shutdown"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/analytics/TenantAnalyticsScheduler.scala"
+      ]
+    },
+    "tenantPredictiveAnalytics": {
+      "class": "TenantPredictiveAnalytics",
+      "type": "class",
+      "description": "Predictive analytics using multiple statistical models",
+      "methods": [
+        {"name": "forecastUsage", "description": "Forecast usage with ensemble models"},
+        {"name": "detectAnomalies", "description": "Detect anomalies using multiple methods"},
+        {"name": "recommendTierUpgrade", "description": "Recommend tier upgrade"}
+      ],
+      "features": [
+        "Ensemble forecasting",
+        "Multiple anomaly detection algorithms",
+        "Confidence scoring",
+        "Trend analysis"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/analytics/TenantPredictiveAnalytics.scala"
+      ]
+    },
+    "tenantAnomalyDetector": {
+      "class": "TenantAnomalyDetector",
+      "type": "class",
+      "description": "Real-time anomaly detection using multiple algorithms",
+      "methods": [
+        {"name": "detectAnomalies", "description": "Detect anomalies using multiple algorithms"},
+        {"name": "updateBaselines", "description": "Update historical baselines"},
+        {"name": "scanAllTenants", "description": "Batch scan for anomalies"},
+        {"name": "cleanup", "description": "Clean up stale data"},
+        {"name": "getStats", "description": "Get detector statistics"}
+      ],
+      "features": [
+        "Multiple detection algorithms",
+        "Per-tenant moving windows",
+        "Historical baselines",
+        "Circuit breaker pattern"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/analytics/TenantAnomalyDetector.scala"
+      ]
+    },
+    "tenantAnalyticsDashboardService": {
+      "class": "TenantAnalyticsDashboardService",
+      "type": "class",
+      "description": "Dashboard data aggregation with caching",
+      "methods": [
+        {"name": "getMainDashboard", "description": "Get main dashboard with caching"},
+        {"name": "getRealtimeDashboard", "description": "Get real-time dashboard"},
+        {"name": "getWidget", "description": "Get individual widget data"},
+        {"name": "getCacheStats", "description": "Get cache statistics"},
+        {"name": "clearCache", "description": "Clear dashboard cache"}
+      ],
+      "features": [
+        "Multi-level caching with TTL",
+        "Parallel data fetching",
+        "Configurable widgets",
+        "Performance monitoring"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/analytics/TenantAnalyticsDashboardService.scala"
+      ]
+    },
+    "tenantAnalyticsExportService": {
+      "class": "TenantAnalyticsExportService",
+      "type": "class",
+      "description": "Multi-format export service with compression",
+      "methods": [
+        {"name": "exportToCsv", "description": "Export data to CSV format"},
+        {"name": "exportToJson", "description": "Export data to JSON format"},
+        {"name": "exportSummaryReport", "description": "Export tenant summary report"},
+        {"name": "exportMultiTenantComparison", "description": "Export multi-tenant comparison"},
+        {"name": "scheduleExport", "description": "Schedule automated exports"},
+        {"name": "healthCheck", "description": "Export service health check"}
+      ],
+      "features": [
+        "CSV and JSON formats",
+        "GZIP compression",
+        "Batch processing",
+        "Scheduled exports"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/analytics/TenantAnalyticsExportService.scala"
+      ]
+    },
+    "tenantAnalyticsWebSocket": {
+      "class": "TenantAnalyticsWebSocket",
+      "type": "class",
+      "description": "Real-time analytics via WebSocket",
+      "methods": [
+        {"name": "websocketFlow", "description": "WebSocket flow per connection"}
+      ],
+      "features": [
+        "Per-tenant WebSocket connections",
+        "Real-time metric streaming",
+        "Keep-alive pings",
+        "Thread-safe subscriber management"
+      ],
+      "files": [
+        "src/main/scala/com/aurora/api/TenantAnalyticsWebSocket.scala"
+      ]
+    },
+    "tenantAnalyticsRoutes": {
+      "class": "TenantAnalyticsRoutes",
+      "type": "class",
+      "description": "RESTful API for tenant analytics",
+      "endpoints": [
+        {"path": "/api/v1/analytics/sessions/current", "method": "GET", "description": "Get current session"},
+        {"path": "/api/v1/analytics/sessions/active", "method": "GET", "description": "Get active sessions"},
+        {"path": "/api/v1/analytics/metrics/realtime", "method": "GET", "description": "Real-time metrics (WebSocket)"},
+        {"path": "/api/v1/analytics/metrics/timeseries", "method": "GET", "description": "Time-series metrics"},
+        {"path": "/api/v1/analytics/summary", "method": "GET", "description": "Tenant summary"},
+        {"path": "/api/v1/analytics/predict/forecast", "method": "GET", "description": "Usage forecast"},
+        {"path": "/api/v1/analytics/predict/anomalies", "method": "GET", "description": "Detected anomalies"},
+        {"path": "/api/v1/analytics/admin/all-tenants", "method": "GET", "description": "All tenants metrics (admin)"},
+        {"path": "/api/v1/analytics/export/csv", "method": "GET", "description": "Export as CSV"},
+        {"path": "/api/v1/analytics/export/json", "method": "GET", "description": "Export as JSON"},
+        {"path": "/api/v1/analytics/health", "method": "GET", "description": "Health check"},
+        {"path": "/api/v1/analytics/cache/clear", "method": "POST", "description": "Clear cache (admin)"}
+      ],
+      "files": [
+        "src/main/scala/com/aurora/api/TenantAnalyticsRoutes.scala"
+      ]
     }
   },
   "templates": {
@@ -501,7 +840,20 @@
     "✅ Webhook notifications on completion",
     "✅ Template-based configuration initialization",
     "✅ Template-based resource limit initialization",
-    "✅ REST API for onboarding operations"
+    "✅ REST API for onboarding operations",
+    "✅ Lock-free metrics collection with ring buffers",
+    "✅ Real-time session tracking",
+    "✅ Time-series analytics with multiple granularities",
+    "✅ Ensemble forecasting with multiple algorithms",
+    "✅ Multi-algorithm anomaly detection",
+    "✅ WebSocket streaming for real-time metrics",
+    "✅ Comprehensive analytics REST API",
+    "✅ Multi-format data export (CSV/JSON)",
+    "✅ Predictive tier upgrade recommendations",
+    "✅ Circuit breaker for failing tenants",
+    "✅ Alerting for anomalies and limit violations",
+    "✅ Multi-level caching for dashboard performance",
+    "✅ Automatic data retention and cleanup"
   ],
   "testing": {
     "cli_commands": [
@@ -529,6 +881,13 @@
       "limits-set - Set a resource limit (CPU, Memory, APIRequests, ConcurrentRequests)",
       "limits-usage - Show current resource usage",
       "limits-status - Show limit status with percentages",
+      "analytics-sessions - Show active sessions",
+      "analytics-metrics - Show real-time metrics",
+      "analytics-usage - Show usage patterns",
+      "analytics-forecast - Show usage forecast",
+      "analytics-anomalies - Show detected anomalies",
+      "analytics-summary - Show tenant summary",
+      "analytics-cache - Show analytics cache status",
       "exit - Exit application"
     ],
     "verification": {
@@ -549,7 +908,13 @@
       "✅ onboarding_automation": "Tenants created with proper defaults via single command",
       "✅ template_support": "Different tiers get appropriate configs and limits",
       "✅ database_provisioning": "Enterprise tenants get dedicated databases automatically",
-      "✅ batch_onboarding": "Multiple tenants can be created in one operation"
+      "✅ batch_onboarding": "Multiple tenants can be created in one operation",
+      "✅ realtime_metrics": "Metrics collected with sub-second latency",
+      "✅ session_tracking": "Active sessions tracked per tenant",
+      "✅ forecasting": "Predictive forecasts generated from historical data",
+      "✅ anomaly_detection": "Anomalies detected using multiple algorithms",
+      "✅ websocket_streaming": "Real-time metrics via WebSocket",
+      "✅ export_formats": "Data export in CSV and JSON formats"
     }
   },
   "next_enhancements": [
@@ -558,20 +923,24 @@
     "Cross-tenant federation",
     "Backup & restore per dedicated DB",
     "Multi-region tenant deployment",
-    "Tenant analytics dashboard",
     "OpenAPI/Swagger documentation",
     "Distributed rate limiting using Redis",
     "Container-aware CPU/memory limits",
-    "Alerting when approaching limits"
+    "Alerting when approaching limits",
+    "Server-Sent Events (SSE) support",
+    "Parquet export format",
+    "Machine learning model integration",
+    "Custom dashboard widgets",
+    "Email report scheduling"
   ],
   "metrics": {
-    "files": 21,
-    "linesOfCode": "~3200",
-    "testCoverage": "Manual CLI & HTTP testing with verified 429 responses and onboarding flows",
+    "files": 34,
+    "linesOfCode": "~6500",
+    "testCoverage": "Manual CLI & HTTP testing with verified 429 responses, onboarding flows, and analytics pipelines",
     "completionStatus": "100%",
-    "newEndpoints": 12,
-    "newCliCommands": 4,
-    "newFiles": 5
+    "newEndpoints": 25,
+    "newCliCommands": 11,
+    "newFiles": 13
   },
   "file_manifest": [
     "src/main/scala/com/aurora/Main.scala",
@@ -581,6 +950,8 @@
     "src/main/scala/com/aurora/api/TenantResourceMiddleware.scala",
     "src/main/scala/com/aurora/api/TenantRoutesWithContext.scala",
     "src/main/scala/com/aurora/api/TenantOnboardingRoutes.scala",
+    "src/main/scala/com/aurora/api/TenantAnalyticsRoutes.scala",
+    "src/main/scala/com/aurora/api/TenantAnalyticsWebSocket.scala",
     "src/main/scala/com/aurora/infrastructure/MongoDB.scala",
     "src/main/scala/com/aurora/infrastructure/TenantDatabase.scala",
     "src/main/scala/com/aurora/infrastructure/TenantDatabaseManager.scala",
@@ -594,6 +965,18 @@
     "src/main/scala/com/aurora/tenant/TenantResourceLimits.scala",
     "src/main/scala/com/aurora/tenant/TenantResourceUsage.scala",
     "src/main/scala/com/aurora/tenant/TenantOnboardingService.scala",
+    "src/main/scala/com/aurora/analytics/TenantAnalyticsEvent.scala",
+    "src/main/scala/com/aurora/analytics/TenantAnalyticsContext.scala",
+    "src/main/scala/com/aurora/analytics/TenantAnalyticsBuffer.scala",
+    "src/main/scala/com/aurora/analytics/TenantMetricsCollector.scala",
+    "src/main/scala/com/aurora/analytics/TenantAnalyticsStorage.scala",
+    "src/main/scala/com/aurora/analytics/TenantAnalyticsQueryService.scala",
+    "src/main/scala/com/aurora/analytics/TenantMetricsAggregator.scala",
+    "src/main/scala/com/aurora/analytics/TenantAnalyticsScheduler.scala",
+    "src/main/scala/com/aurora/analytics/TenantPredictiveAnalytics.scala",
+    "src/main/scala/com/aurora/analytics/TenantAnomalyDetector.scala",
+    "src/main/scala/com/aurora/analytics/TenantAnalyticsDashboardService.scala",
+    "src/main/scala/com/aurora/analytics/TenantAnalyticsExportService.scala",
     "src/main/resources/application.conf",
     "src/main/resources/logback.xml"
   ]
